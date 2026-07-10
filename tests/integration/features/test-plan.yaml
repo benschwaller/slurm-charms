@@ -1,0 +1,303 @@
+# gherkinator test plan for the Slurm charms BDD migration.
+#
+# This file is the SINGLE SOURCE OF TRUTH for every BDD scenario in this
+# repo. Edit it with `gherkinator edit`, validate with `gherkinator
+# validate`, and regenerate the .feature files with:
+#
+#   gherkinator generate --format gh tests/integration/features/test-plan.yaml \
+#     --output-dir tests/integration/features
+#
+# Do NOT hand-edit the generated .feature files — they are overwritten on
+# every `gherkinator generate`.
+#
+# The original non-BDD tests (tests/integration/test_charm.py, test_ha.py,
+# test_mail.py, test_oci_runtime.py, test_influxdb.py) have been removed.
+# All scenarios are now BDD-driven via the .feature files and step
+# definitions in tests/integration/test_*_bdd.py.
+#
+# Cross-file ordering is preserved via @pytest.mark.order on the
+# scenario-loading modules (see tests/integration/test_*_bdd.py). The
+# `type`/`status`/`risk` fields become Gherkin tags via gherkinator.
+
+---
+feature: "Slurm cluster deployment"
+type: functional
+status: implemented
+risk: edge
+description: "Deploy the full Slurm cluster (sackd, slurmctld, slurmd, slurmdbd, slurmrestd, mysql) and integrate all applications. Shared session state relied on by every subsequent feature."
+scenarios:
+  - |-
+    Deploy the slurm cluster
+    Given I add model 'slurm'
+    Given I switch to model 'slurm'
+    Given I deploy the slurm cluster
+    Given I integrate 'login' with 'controller'
+    Given I integrate 'compute' with 'controller'
+    Given I integrate 'database' with 'controller'
+    Given I integrate 'rest-api' with 'controller'
+    Given I integrate 'mysql' with 'database'
+    Then the workload status for app 'login' is 'active'
+    Then the workload status for app 'controller' is 'active'
+    Then the workload status for app 'compute' is 'active'
+    Then the workload status for app 'database' is 'active'
+    Then the workload status for app 'rest-api' is 'active'
+
+---
+feature: "Slurm services health"
+type: functional
+status: implemented
+risk: edge
+description: "Verify Slurm services are active within units, the prometheus-slurm-exporter metrics endpoint is accessible, and slurmctld/slurmdbd are listening on their expected ports."
+background: |-
+  Given 'login' is deployed
+  Given 'controller' is deployed
+  Given 'compute' is deployed
+  Given 'database' is deployed
+  Given 'rest-api' is deployed
+scenarios:
+  - |-
+    Slurm services are active within all units
+    Then the slurm service is active on all slurm units
+  - |-
+    Slurm metrics endpoint is accessible
+    Then the metrics endpoint on unit 'controller/0' returns http status '200'
+  - |-
+    Slurmctld is listening on port 6817
+    Then unit 'controller/0' is listening on port '6817'
+  - |-
+    Slurmdbd is listening on port 6819
+    Then unit 'database/0' is listening on port '6819'
+
+---
+feature: "Slurm node operations"
+type: functional
+status: implemented
+risk: edge
+description: "Compute node state, set-node-config, and set-node-state action verification."
+background: |-
+  Given 'controller' is deployed
+  Given 'compute' is deployed
+scenarios:
+  - |-
+    Default slurmd node state and reason
+    Then the node for unit 'compute/0' has state containing 'DOWN' and reason "'n/a'"
+  - |-
+    Set node config action updates node weight
+    When I run action 'set-node-config' on unit 'compute/0' with parameters 'parameters=weight=100'
+    Then the node for unit 'compute/0' has weight '100' and state containing 'DOWN' and reason "'n/a'"
+    When I reset the node configuration on unit 'compute/0'
+    Then the node for unit 'compute/0' has weight '1' and state containing 'DOWN' and reason "'n/a'"
+  - |-
+    Set node state action updates node state and reason
+    When I run action 'set-node-state' on unit 'controller/0' with parameters 'nodes=compute-0 state=down reason=maintenance'
+    Then the node for unit 'compute/0' has state containing 'DOWN' and reason "'maintenance'"
+    When I run action 'set-node-state' on unit 'controller/0' with parameters 'nodes=compute-0 state=idle'
+    Then the node for unit 'compute/0' has state containing 'IDLE' and reason ""
+
+---
+feature: "Slurm key rotation"
+type: functional
+status: implemented
+risk: edge
+description: "rotate-auth-key and rotate-jwt-key action verification, including cross-unit key propagation and REST API token invalidation."
+scenarios:
+  - |-
+    Rotate auth key across the cluster
+    Given I capture the auth key from unit 'controller/0'
+    When I run action 'rotate-auth-key' on unit 'controller/0'
+    Then the workload status for app 'login' is 'active'
+    Then the workload status for app 'controller' is 'active'
+    Then the workload status for app 'compute' is 'active'
+    Then the workload status for app 'database' is 'active'
+    Then the workload status for app 'rest-api' is 'active'
+    Then the auth key on unit 'controller/0' is rotated and propagated to all units
+  - |-
+    Rotate JWT key across the cluster
+    Given I capture the jwt key from unit 'controller/0'
+    And I capture the jwt key from unit 'database/0'
+    And the initial jwt keys match between 'controller/0' and 'database/0'
+    And I capture an initial slurm token from unit 'controller/0'
+    And the slurm rest api diagnostic endpoints are reachable from 'controller/0'
+    When I run action 'rotate-jwt-key' on unit 'controller/0'
+    Then the workload status for app 'login' is 'active'
+    Then the workload status for app 'controller' is 'active'
+    Then the workload status for app 'compute' is 'active'
+    Then the workload status for app 'database' is 'active'
+    Then the workload status for app 'rest-api' is 'active'
+    Then the jwt key on unit 'controller/0' is rotated and matches unit 'database/0'
+    And the initial slurm token from unit 'controller/0' is no longer valid
+    And a new slurm token from unit 'controller/0' is valid for all diagnostic endpoints
+
+---
+feature: "Slurm job submission"
+type: functional
+status: implemented
+risk: edge
+description: "Basic job submission and GPU job submission with a mock GPU device."
+background: |-
+  Given 'login' is deployed
+  Given 'controller' is deployed
+  Given 'compute' is deployed
+scenarios:
+  - |-
+    Simple job submission
+    Then a slurm job submitted from unit 'login/0' runs on unit 'compute/0'
+  - |-
+    GPU job submission with mock GPU
+    Given I set up a mock GPU on unit 'compute/0'
+    When I run action 'set-node-config' on unit 'compute/0' with parameters 'parameters=gres=gpu:mock_gpu:1'
+    Given I set 'cgroup-parameters' for app 'controller' to 'constraindevices=no'
+    When I re-register the slurmd node 'compute-0' on unit 'login/0'
+    Then a slurm gpu job submitted from unit 'login/0' runs on unit 'compute/0'
+    When I clean up the mock GPU on unit 'compute/0'
+    When I reset the node configuration on unit 'compute/0'
+    Given I reset 'cgroup-parameters' for app 'controller'
+    When I re-register the slurmd node 'compute-0' on unit 'login/0'
+
+---
+feature: "Slurm mail notifications"
+type: functional
+status: implemented
+risk: edge
+description: "SMTP integrator deployment and Slurm job notification emails for job end, failure, and begin with a custom signature."
+background: |-
+  Given 'controller' is deployed
+scenarios:
+  - |-
+    Deploy and integrate SMTP integrator
+    Given I deploy 'smtp-integrator' with host and port '8025'
+    Given I integrate 'controller' with 'smtp-integrator:smtp'
+    Then the workload status for app 'controller' is 'active'
+    Then the workload status for app 'smtp-integrator' is 'active'
+  - |-
+    Notification email when a job ends
+    When I run a slurm job on unit 'login/0' with mail user 'user@localhost' and mail type 'END'
+    Then an email is received by 'user@localhost' with subject matching '^Job charmed-hpc-[\w-]{4}\.\d+: Ended$' and content matching 'Your job \d+ has ended on charmed-hpc-[\w-]{4}\.'
+  - |-
+    Notification email when a job fails
+    When I run a failing slurm job on unit 'login/0' with mail user 'anotheruser@localhost' and mail type 'FAIL,END'
+    Then an email is received by 'anotheruser@localhost' with subject matching '^Job charmed-hpc-[\w-]{4}\.\d+: Failed$' and content matching 'Your job \d+ has failed on charmed-hpc-[\w-]{4}\.'
+  - |-
+    Notification email with custom signature when a job begins
+    Given I set 'email-from-name' for app 'controller' to 'Integration Test Suite'
+    When I run a slurm job on unit 'login/0' with mail user 'furtheruser@localhost' and mail type 'BEGIN'
+    Then an email is received by 'furtheruser@localhost' with subject matching '^Job charmed-hpc-[\w-]{4}\.\d+: Began$' and content matching 'Your job \d+ has started on charmed-hpc-[\w-]{4}\..*?Regards,.*?Integration Test Suite'
+  - |-
+    Remove SMTP integrator
+    When I remove application 'smtp-integrator'
+    Then the workload status for app 'controller' is 'active'
+
+---
+feature: "Slurm OCI runtime"
+type: functional
+status: implemented
+risk: edge
+description: "Apptainer OCI image scheduling through Slurm."
+background: |-
+  Given 'login' is deployed
+  Given 'controller' is deployed
+  Given 'compute' is deployed
+scenarios:
+  - |-
+    Apptainer OCI scheduling
+    Given I deploy 'apptainer' from channel 'latest/edge'
+    Given I integrate 'apptainer' with 'controller'
+    Given I integrate 'apptainer' with 'compute'
+    Then the workload status for app 'apptainer' is 'active'
+    Then an apptainer container job submitted from unit 'login/0' runs on unit 'compute/0'
+
+---
+feature: "Slurm InfluxDB accounting"
+type: functional
+status: planned
+risk: edge
+description: "InfluxDB task accounting. Currently skipped because the influxdb charm deployment is broken."
+background: |-
+  Given 'controller' is deployed
+  Given 'login' is deployed
+scenarios:
+  - |-
+    Task accounting works
+    Given I deploy 'influxdb'
+    Given I integrate 'influxdb' with 'controller'
+    Then the workload status for app 'influxdb' is 'active'
+    Then a slurm task accounting job on unit 'login/0' reports '1' task
+
+---
+feature: "Slurmctld high availability"
+type: reliability
+status: planned
+risk: edge
+description: "High availability for slurmctld: shared storage deploy, scale up/down, service and unit failover and recovery, degraded scale-up, and removal of a failed controller. Gated by the high_availability marker (--run-high-availability)."
+background: |-
+  Given 'controller' is deployed
+scenarios:
+  - |-
+    Deploy shared storage for high availability
+    Given I deploy 'microceph' with constraints 'mem=4G,root-disk=20G,virt-type=virtual-machine' and storage 'osd-standalone=loop,2G,3'
+    Given I deploy 'filesystem-client' from channel 'latest/edge'
+    Then the workload status for app 'microceph' is 'active'
+    When I set up cephfs on unit 'microceph/0'
+    Given I deploy 'cephfs-server-proxy' from channel 'latest/edge' with cephfs config from unit 'microceph/0'
+    Given I integrate 'filesystem-client' with 'cephfs-server-proxy'
+    Given I integrate 'filesystem-client:mount' with 'controller:mount'
+    Then the workload status for app 'controller' is 'active'
+    Then the primary controller is 'UP'
+  - |-
+    Scale up slurmctld by two units
+    Given I add '2' units to app 'controller'
+    Then the workload status for app 'controller' is 'active'
+    Then the primary controller is 'UP'
+    Then there are '3' slurm controllers
+    Then the backup1 controller is 'UP'
+    Then the backup2 controller is 'UP'
+  - |-
+    Scale down slurmctld by one unit
+    When I remove the 'backup1' controller unit
+    Then the workload status for app 'controller' is 'active'
+    Then there are '2' slurm controllers
+    Then the primary controller is 'UP'
+    Then the backup controller is 'UP'
+  - |-
+    Service failover to backup controller
+    When I stop the primary controller service
+    Then sinfo succeeds on unit 'login/0'
+    Then the backup controller service is running as primary
+  - |-
+    Service recovery after restarting primary
+    When I restart the primary controller service
+    Then sinfo succeeds on unit 'login/0'
+    Then the primary controller service is running as primary
+    Then the backup controller service is running in background mode
+  - |-
+    Unit failover after powering off primary machine
+    When I power off the primary controller machine
+    Then the primary machine is powered off
+    Then sinfo succeeds on unit 'login/0'
+    Then the backup controller service is running as primary
+    Then a slurm job submitted from unit 'login/0' runs on unit 'compute/0'
+  - |-
+    Unit recovery after rebooting primary machine
+    When I reboot the primary controller machine
+    Then the workload status for app 'controller' is 'active'
+    Then sinfo succeeds on unit 'login/0'
+    Then the primary controller service is running as primary
+    Then the backup controller service is running in background mode
+  - |-
+    Scale up slurmctld while primary is failed
+    When I power off the primary controller machine
+    Then the primary machine is powered off
+    Then the primary controller is 'DOWN'
+    Then the backup controller is 'UP'
+    Given I add '1' units to app 'controller'
+    Then there are '3' slurm controllers
+    Then the primary controller is 'DOWN'
+    Then the backup1 controller is 'UP'
+    Then the backup2 controller is 'UP'
+  - |-
+    Remove failed controller unit
+    When I remove the down controller unit
+    Then the workload status for app 'controller' is 'active'
+    Then there are '2' slurm controllers
+    Then the primary controller is 'UP'
+    Then the backup controller is 'UP'

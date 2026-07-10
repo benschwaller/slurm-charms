@@ -55,9 +55,8 @@ dev = [
     "aiosmtpd == 1.4.6",
     "jubilant ~= 1.0",
     "pytest ~= 9.0",
+    "pytest-jubilant-bdd",
     "pytest-order ~= 1.4",
-    "pytest-mock ~= 3.14",
-    "tenacity ~= 8.2",
 
     # Linting
     "black",

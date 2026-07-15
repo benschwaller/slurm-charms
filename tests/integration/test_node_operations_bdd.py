@@ -51,12 +51,12 @@ def _wait_for_node(context: Context, unit: str, name: str, predicate) -> None:
 # ``parsers.re`` with ``[^"]*`` is used rather than ``parsers.parse`` whose
 # default ``(.+)`` requires at least one character.
 _NODE_STATE_RE = (
-    r"the node for unit '(?P<unit>[^']+)' has state containing '(?P<state>[^']+)' "
+    r"the slurmd node for unit '(?P<unit>[^']+)' has state containing '(?P<state>[^']+)' "
     r'and reason "(?P<reason>[^"]*)"'
 )
 
 _NODE_WEIGHT_RE = (
-    r"the node for unit '(?P<unit>[^']+)' has weight '(?P<weight>[^']+)' "
+    r"the slurmd node for unit '(?P<unit>[^']+)' has weight '(?P<weight>[^']+)' "
     r"and state containing '(?P<state>[^']+)' "
     r'and reason "(?P<reason>[^"]*)"'
 )

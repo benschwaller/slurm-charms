@@ -28,7 +28,7 @@ pytestmark = pytest.mark.order(2)
 scenarios("features/slurm_services_health.feature")
 
 
-@then("the slurm service is active on all slurm units")
+@then("the slurm systemd service is active on all slurm units")
 def slurm_services_active(context: Context) -> None:
     """Verify ``systemctl is-active`` returns ``active`` for every Slurm service."""
     juju = context.get_juju()
@@ -41,7 +41,7 @@ def slurm_services_active(context: Context) -> None:
             ), f"service '{service}' not active on unit '{unit}': {result.stdout.strip()}"
 
 
-@then(parsers.parse("the metrics endpoint on unit '{unit}' returns http status '{status_code}'"))
+@then(parsers.parse("the slurmctld metrics endpoint on unit '{unit}' returns http status '{status_code}'"))
 def metrics_endpoint(context: Context, unit: str, status_code: str) -> None:
     """Curl the prometheus-slurm-exporter metrics endpoint and check the HTTP code."""
     juju = context.get_juju()
@@ -54,7 +54,7 @@ def metrics_endpoint(context: Context, unit: str, status_code: str) -> None:
     ), f"metrics endpoint returned '{result.stdout.strip()}', expected '{status_code}'"
 
 
-@then(parsers.parse("unit '{unit}' is listening on port '{port}'"))
+@then(parsers.parse("unit '{unit}' is listening on TCP port '{port}'"))
 def port_listening(context: Context, unit: str, port: str) -> None:
     """Verify a TCP port is listening using ``lsof``."""
     juju = context.get_juju()

@@ -41,7 +41,7 @@ scenarios("features/slurm_mail_notifications.feature")
 # ---------------------------------------------------------------------------
 
 
-@given(parsers.parse("I deploy 'smtp-integrator' with host and port '{port}'"))
+@given(parsers.parse("I deploy 'smtp-integrator' with auto-resolved local host and port '{port}'"))
 def deploy_smtp_integrator(context: Context, port: str) -> None:
     """Deploy ``smtp-integrator`` with the local interface IP and given port."""
     juju = context.get_juju()
@@ -69,7 +69,7 @@ def remove_application(context: Context, app: str) -> None:
 
 @when(
     parsers.parse(
-        "I run a slurm job on unit '{unit}' with mail user '{to_address}' "
+        "I run a slurm srun job on unit '{unit}' with mail user '{to_address}' "
         "and mail type '{mail_type}'"
     )
 )
@@ -85,7 +85,7 @@ def run_slurm_job_mail(context: Context, unit: str, to_address: str, mail_type: 
 
 @when(
     parsers.parse(
-        "I run a failing slurm job on unit '{unit}' with mail user '{to_address}' "
+        "I run a failing slurm srun job on unit '{unit}' with mail user '{to_address}' "
         "and mail type '{mail_type}'"
     )
 )
@@ -113,7 +113,7 @@ def run_failing_slurm_job_mail(
 
 @then(
     parsers.parse(
-        "an email is received by '{to_address}' with subject matching '{subject_pattern}' "
+        "a notification email is received by '{to_address}' with subject matching '{subject_pattern}' "
         "and content matching '{content_pattern}'"
     )
 )

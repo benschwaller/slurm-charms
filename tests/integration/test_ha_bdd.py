@@ -139,7 +139,7 @@ def deploy_microceph(context: Context, constraints: str, storage: str) -> None:
 @given(
     parsers.parse(
         "I deploy 'cephfs-server-proxy' from channel '{channel}' "
-        "with cephfs config from unit 'microceph/0'"
+        "with cephfs config gathered from unit 'microceph/0'"
     )
 )
 def deploy_cephfs_proxy(context: Context, channel: str) -> None:
@@ -175,7 +175,7 @@ def deploy_cephfs_proxy(context: Context, channel: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-@given(parsers.parse("I set up cephfs on unit '{unit}'"))
+@given(parsers.parse("I set up the cephfs pools and client on unit '{unit}'"))
 def setup_cephfs(context: Context, unit: str) -> None:
     """Create CephFS pools and authorise a client on microceph."""
     juju = context.get_juju()
@@ -194,7 +194,7 @@ def setup_cephfs(context: Context, unit: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-@given("I record the slurm controller units")
+@given("I record the current slurmctld controller mode assignments")
 def record_controllers(context: Context, scenario_state: dict) -> None:
     """Snapshot the current slurm controller modes for stable unit references.
 
@@ -205,7 +205,7 @@ def record_controllers(context: Context, scenario_state: dict) -> None:
     scenario_state["ha_controllers"] = _get_slurm_controllers(context)
 
 
-@given(parsers.parse("there are '{down}' down and '{up}' up controller units"))
+@given(parsers.parse("there are '{down}' down and '{up}' up slurmctld controller machines"))
 def controller_unit_count(context: Context, down: str, up: str) -> None:
     """Assert the number of down and up slurmctld units by machine status."""
     juju = context.get_juju()
@@ -223,7 +223,7 @@ def controller_unit_count(context: Context, down: str, up: str) -> None:
 
 @then(
     parsers.parse(
-        "the '{mode}' controller hostname matches the recorded '{recorded_mode}' controller hostname"
+        "the slurmctld controller that is {mode} has the hostname recorded for {recorded_mode}"
     )
 )
 def controller_hostname_unchanged(
@@ -250,8 +250,8 @@ def controller_hostname_unchanged(
 # ---------------------------------------------------------------------------
 
 
-@given(parsers.parse("the {mode} controller is '{status}'"))
-@then(parsers.parse("the {mode} controller is '{status}'"))
+@given(parsers.parse("the slurmctld controller that is {mode} reports ping status '{status}'"))
+@then(parsers.parse("the slurmctld controller that is {mode} reports ping status '{status}'"))
 def controller_status(context: Context, mode: str, status: str) -> None:
     """Assert that the controller in the given mode has the given pinged status."""
 
@@ -264,8 +264,8 @@ def controller_status(context: Context, mode: str, status: str) -> None:
     _wait_for_controllers(context, check)
 
 
-@given(parsers.parse("there are '{count}' slurm controllers"))
-@then(parsers.parse("there are '{count}' slurm controllers"))
+@given(parsers.parse("there are '{count}' slurmctld controllers registered"))
+@then(parsers.parse("there are '{count}' slurmctld controllers registered"))
 def controller_count(context: Context, count: str) -> None:
     """Assert the number of registered slurm controllers."""
 
@@ -282,7 +282,7 @@ def controller_count(context: Context, count: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-@when(parsers.parse("I remove the '{mode}' controller unit"))
+@when(parsers.parse("I remove the slurmctld controller that is {mode}"))
 def remove_controller_unit(context: Context, mode: str) -> None:
     """Remove the slurmctld unit corresponding to the given controller mode."""
     juju = context.get_juju()
@@ -300,7 +300,7 @@ def remove_controller_unit(context: Context, mode: str) -> None:
     )
 
 
-@when("I remove the down controller unit")
+@when("I remove the slurmctld controller that is down")
 def remove_down_controller(context: Context) -> None:
     """Find and remove the powered-off slurmctld controller unit."""
     juju = context.get_juju()
@@ -323,7 +323,7 @@ def remove_down_controller(context: Context) -> None:
 # ---------------------------------------------------------------------------
 
 
-@when("I stop the primary controller service")
+@when("I stop the slurmctld service on the controller that is primary")
 def stop_primary_service(context: Context, scenario_state: dict) -> None:
     """Stop the slurmctld service on the primary controller unit."""
     juju = context.get_juju()
@@ -335,7 +335,7 @@ def stop_primary_service(context: Context, scenario_state: dict) -> None:
     )
 
 
-@when("I restart the primary controller service")
+@when("I restart the slurmctld service on the controller that is primary")
 def restart_primary_service(context: Context, scenario_state: dict) -> None:
     """Restart the slurmctld service on the primary controller unit."""
     juju = context.get_juju()
@@ -347,7 +347,7 @@ def restart_primary_service(context: Context, scenario_state: dict) -> None:
     )
 
 
-@then(parsers.parse("sinfo succeeds on unit '{unit}'"))
+@then(parsers.parse("the slurm sinfo command succeeds on unit '{unit}'"))
 def sinfo_succeeds(context: Context, unit: str) -> None:
     """Poll until ``sinfo`` returns successfully on the given unit."""
     juju = context.get_juju()
@@ -362,7 +362,7 @@ def sinfo_succeeds(context: Context, unit: str) -> None:
     context.wait(ready=ready)
 
 
-@then("the backup controller service is running as primary")
+@then("the slurmctld service on the controller that is backup is running as primary")
 def backup_running_as_primary(context: Context, scenario_state: dict) -> None:
     """Assert the backup controller's service shows 'Running as primary controller'."""
     juju = context.get_juju()
@@ -395,7 +395,7 @@ def backup_running_as_primary(context: Context, scenario_state: dict) -> None:
     context.wait(ready=ready)
 
 
-@then("the primary controller service is running as primary")
+@then("the slurmctld service on the controller that is primary is running as primary")
 def primary_running_as_primary(context: Context, scenario_state: dict) -> None:
     """Assert the primary controller's service shows 'Running as primary controller'."""
     juju = context.get_juju()
@@ -428,7 +428,7 @@ def primary_running_as_primary(context: Context, scenario_state: dict) -> None:
     context.wait(ready=ready)
 
 
-@then("the backup controller service is running in background mode")
+@then("the slurmctld service on the controller that is backup is running in background mode")
 def backup_running_in_background(context: Context, scenario_state: dict) -> None:
     """Assert the backup controller's service shows 'running in background mode'."""
     juju = context.get_juju()
@@ -467,7 +467,7 @@ def backup_running_in_background(context: Context, scenario_state: dict) -> None
 
 
 @given(
-    parsers.parse("the node for unit '{compute_unit}' is schedulable from unit '{login_unit}'")
+    parsers.parse("the slurmd node for unit '{compute_unit}' is schedulable according to scontrol from unit '{login_unit}'")
 )
 def node_is_schedulable(
     context: Context, scenario_state: dict, compute_unit: str, login_unit: str
@@ -546,7 +546,7 @@ def node_is_schedulable(
 # ---------------------------------------------------------------------------
 
 
-@when("I power off the primary controller machine")
+@when("I power off the primary slurmctld machine")
 def power_off_primary(context: Context, scenario_state: dict) -> None:
     """Power off the primary controller's machine."""
     juju = context.get_juju()
@@ -559,8 +559,8 @@ def power_off_primary(context: Context, scenario_state: dict) -> None:
     )
 
 
-@given("the primary machine is powered off")
-@then("the primary machine is powered off")
+@given("the primary slurmctld machine is powered off")
+@then("the primary slurmctld machine is powered off")
 def primary_machine_off(context: Context, scenario_state: dict) -> None:
     """Assert the primary controller's machine juju status is 'down'."""
     juju = context.get_juju()
@@ -573,7 +573,7 @@ def primary_machine_off(context: Context, scenario_state: dict) -> None:
     context.wait(ready=ready)
 
 
-@when("I reboot the primary controller machine")
+@when("I reboot the primary slurmctld machine")
 def reboot_primary_machine(context: Context, scenario_state: dict) -> None:
     """Start the powered-off primary machine via lxc."""
     controllers = _controllers(context, scenario_state)

@@ -32,7 +32,7 @@ scenarios("features/slurm_oci_runtime.feature")
 
 @then(
     parsers.parse(
-        "an apptainer container job submitted from unit '{login_unit}' "
+        "a slurm apptainer container job submitted from unit '{login_unit}' "
         "runs on unit '{compute_unit}'"
     )
 )

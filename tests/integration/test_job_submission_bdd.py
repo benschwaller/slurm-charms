@@ -36,33 +36,6 @@ pytestmark = pytest.mark.order(12)
 scenarios("features/slurm_job_submission.feature")
 
 
-@then(
-    parsers.parse("a slurm job submitted from unit '{login_unit}' runs on unit '{compute_unit}'")
-)
-def job_submission(context: Context, login_unit: str, compute_unit: str) -> None:
-    """Submit a job from the login node and verify it runs on the compute node."""
-    juju = context.get_juju()
-    slurmd_result = juju.exec("hostname -s", unit=compute_unit)
-    job_name = f"bdd-{uuid.uuid4().hex[:8]}"
-    sackd_result = juju.exec(
-        f"srun -J {job_name} --partition {SLURMD_APP_NAME} hostname -s",
-        unit=login_unit,
-    )
-    assert sackd_result.success
-    assert sackd_result.stdout == slurmd_result.stdout
-    # Verify the job was recorded as COMPLETED in Slurm accounting.
-    sacct_result = juju.exec(
-        f"sacct --name={job_name} --format=State --noheader --parsable2",
-        unit=login_unit,
-    )
-    assert sacct_result.success
-    states = [s.strip() for s in sacct_result.stdout.strip().splitlines() if s.strip()]
-    assert states, f"no sacct record found for job '{job_name}'"
-    assert any("COMPLETED" in s for s in states), (
-        f"job '{job_name}' did not complete, states: {states}"
-    )
-
-
 # ---------------------------------------------------------------------------
 # GPU job submission with mock GPU
 # ---------------------------------------------------------------------------

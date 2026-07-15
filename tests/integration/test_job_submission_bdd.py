@@ -41,7 +41,7 @@ scenarios("features/slurm_job_submission.feature")
 # ---------------------------------------------------------------------------
 
 
-@given(parsers.parse("I set up a mock GPU on unit '{unit}'"))
+@given(parsers.parse("I set up a mock NVIDIA GPU device on unit '{unit}'"))
 def setup_mock_gpu(context: Context, unit: str) -> None:
     """Mock GPU device files on the slurmd unit for NVIDIA auto-detection."""
     juju = context.get_juju()
@@ -83,7 +83,7 @@ def setup_mock_gpu(context: Context, unit: str) -> None:
     juju.exec("sudo mount --bind /dev/zero /dev/nvidia0", unit=unit)
 
 
-@when(parsers.parse("I clean up the mock GPU on unit '{unit}'"))
+@when(parsers.parse("I clean up the mock NVIDIA GPU device on unit '{unit}'"))
 def cleanup_mock_gpu(context: Context, unit: str) -> None:
     """Remove all mock GPU device files and mounts from the slurmd unit."""
     juju = context.get_juju()
@@ -99,7 +99,7 @@ def cleanup_mock_gpu(context: Context, unit: str) -> None:
         juju.exec(command, unit=unit)
 
 
-@when(parsers.parse("I re-register the slurmd node '{name}' on unit '{login_unit}'"))
+@when(parsers.parse("I re-register the slurmd node '{name}' with the slurm controller on unit '{login_unit}'"))
 def reregister_slurmd_node(context: Context, name: str, login_unit: str) -> None:
     """Delete and restart the slurmd node so it re-registers with the cluster."""
     juju = context.get_juju()
@@ -110,7 +110,7 @@ def reregister_slurmd_node(context: Context, name: str, login_unit: str) -> None
 
 @then(
     parsers.parse(
-        "a slurm gpu job submitted from unit '{login_unit}' runs on unit '{compute_unit}'"
+        "a slurm srun GPU job requesting 1 GPU submitted from unit '{login_unit}' runs on unit '{compute_unit}'"
     )
 )
 def gpu_job_submission(context: Context, login_unit: str, compute_unit: str) -> None:

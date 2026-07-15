@@ -54,7 +54,7 @@ def smtp_handler() -> Iterator[MailHandler]:
         controller.stop()
 
 
-@when(parsers.parse("I reset the node configuration on unit '{unit}'"))
+@when(parsers.parse("I reset the slurmd node configuration on unit '{unit}'"))
 def reset_node_config(context: Context, unit: str) -> None:
     """Reset the slurmd node configuration via the ``set-node-config`` action.
 
@@ -68,7 +68,7 @@ def reset_node_config(context: Context, unit: str) -> None:
 
 
 @then(
-    parsers.parse("a slurm job submitted from unit '{login_unit}' runs on unit '{compute_unit}'")
+    parsers.parse("a slurm srun job submitted from unit '{login_unit}' runs on unit '{compute_unit}'")
 )
 def job_submission(context: Context, login_unit: str, compute_unit: str) -> None:
     """Submit a job from the login node and verify it runs on the compute node."""

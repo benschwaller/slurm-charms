@@ -47,7 +47,7 @@ scenarios("features/slurm_cluster_deployment.feature")
 # deployed as app "login"), and slurmctld requires constraints and config.
 # The built-in ``deploy`` step assumes charm name == app name, so this is a
 # legitimate custom step for domain-specific behaviour.
-@given("I deploy the slurm cluster")
+@given("I deploy the slurm reference cluster")
 def deploy_slurm_cluster(context: Context, base: str) -> None:
     """Deploy all Slurm charms plus mysql with the legacy configuration."""
     juju = context.get_juju()

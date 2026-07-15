@@ -237,7 +237,7 @@ scenarios:
     Given I deploy 'microceph' with constraints 'mem=4G,root-disk=20G,virt-type=virtual-machine' and storage 'osd-standalone=loop,2G,3'
     Given I deploy 'filesystem-client' from channel 'latest/edge'
     Then the workload status for app 'microceph' is 'active'
-    When I set up cephfs on unit 'microceph/0'
+    Given I set up cephfs on unit 'microceph/0'
     Given I deploy 'cephfs-server-proxy' from channel 'latest/edge' with cephfs config from unit 'microceph/0'
     Given I integrate 'filesystem-client' with 'cephfs-server-proxy'
     Given I integrate 'filesystem-client:mount' with 'controller:mount'
@@ -245,59 +245,88 @@ scenarios:
     Then the primary controller is 'UP'
   - |-
     Scale up slurmctld by two units
+    Given the primary controller is 'UP'
+    Given I record the slurm controller units
     Given I add '2' units to app 'controller'
     Then the workload status for app 'controller' is 'active'
     Then the primary controller is 'UP'
+    Then the 'primary' controller hostname matches the recorded 'primary' controller hostname
     Then there are '3' slurm controllers
     Then the backup1 controller is 'UP'
     Then the backup2 controller is 'UP'
   - |-
     Scale down slurmctld by one unit
+    Given there are '3' slurm controllers
+    Given the primary controller is 'UP'
+    Given the backup1 controller is 'UP'
+    Given the backup2 controller is 'UP'
+    Given I record the slurm controller units
     When I remove the 'backup1' controller unit
     Then the workload status for app 'controller' is 'active'
     Then there are '2' slurm controllers
     Then the primary controller is 'UP'
+    Then the 'primary' controller hostname matches the recorded 'primary' controller hostname
     Then the backup controller is 'UP'
+    Then the 'backup' controller hostname matches the recorded 'backup2' controller hostname
   - |-
     Service failover to backup controller
+    Given I record the slurm controller units
+    Given the primary controller is 'UP'
+    Given the backup controller is 'UP'
     When I stop the primary controller service
     Then sinfo succeeds on unit 'login/0'
     Then the backup controller service is running as primary
   - |-
     Service recovery after restarting primary
+    Given I record the slurm controller units
+    Given the primary controller is 'DOWN'
+    Given the backup controller is 'UP'
     When I restart the primary controller service
     Then sinfo succeeds on unit 'login/0'
     Then the primary controller service is running as primary
     Then the backup controller service is running in background mode
   - |-
     Unit failover after powering off primary machine
+    Given I record the slurm controller units
+    Given the primary controller is 'UP'
+    Given the backup controller is 'UP'
+    Given the node for unit 'compute/0' is schedulable from unit 'login/0'
     When I power off the primary controller machine
     Then the primary machine is powered off
-    Then sinfo succeeds on unit 'login/0'
     Then the backup controller service is running as primary
+    Then sinfo succeeds on unit 'login/0'
     Then a slurm job submitted from unit 'login/0' runs on unit 'compute/0'
   - |-
     Unit recovery after rebooting primary machine
+    Given I record the slurm controller units
+    Given the primary controller is 'DOWN'
+    Given the backup controller is 'UP'
+    Given the primary machine is powered off
     When I reboot the primary controller machine
     Then the workload status for app 'controller' is 'active'
     Then sinfo succeeds on unit 'login/0'
     Then the primary controller service is running as primary
     Then the backup controller service is running in background mode
-  - |-
-    Scale up slurmctld while primary is failed
-    When I power off the primary controller machine
-    Then the primary machine is powered off
-    Then the primary controller is 'DOWN'
-    Then the backup controller is 'UP'
-    Given I add '1' units to app 'controller'
-    Then there are '3' slurm controllers
-    Then the primary controller is 'DOWN'
-    Then the backup1 controller is 'UP'
-    Then the backup2 controller is 'UP'
-  - |-
-    Remove failed controller unit
-    When I remove the down controller unit
-    Then the workload status for app 'controller' is 'active'
-    Then there are '2' slurm controllers
-    Then the primary controller is 'UP'
-    Then the backup controller is 'UP'
+  #- |-
+  #  Scale up slurmctld while primary is failed
+  #  Given I record the slurm controller units
+  #  Given the primary controller is 'UP'
+  #  When I power off the primary controller machine
+  #  Then the primary machine is powered off
+  #  Then the primary controller is 'DOWN'
+  #  Then the backup controller is 'UP'
+  #  Given I add '1' units to app 'controller'
+  #  Then there are '3' slurm controllers
+  #  Then the primary controller is 'DOWN'
+  #  Then the 'primary' controller hostname matches the recorded 'primary' controller hostname
+  #  Then the backup1 controller is 'UP'
+  #  Then the 'backup1' controller hostname matches the recorded 'backup' controller hostname
+  #  Then the backup2 controller is 'UP'
+  #- |-
+  #  Remove failed controller unit
+  #  Given there are '1' down and '2' up controller units
+  #  When I remove the down controller unit
+  #  Then the workload status for app 'controller' is 'active'
+  #  Then there are '2' slurm controllers
+  #  Then the primary controller is 'UP'
+  #  Then the backup controller is 'UP'

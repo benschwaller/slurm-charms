@@ -16,13 +16,14 @@
 """Configure Slurm charm integration tests."""
 
 import logging
+import uuid
 from collections.abc import Iterator
 
 import pytest
 from aiosmtpd.controller import Controller
 from bdd_utils import MailHandler, interface_ipv4
-from constants import NETWORK_INTERFACE, SMTP_SERVER_PORT
-from pytest_bdd import parsers, when
+from constants import NETWORK_INTERFACE, SLURMD_APP_NAME, SMTP_SERVER_PORT
+from pytest_bdd import parsers, then, when
 from pytest_jubilant_bdd import Context
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,61 @@ def reset_node_config(context: Context, unit: str) -> None:
     """
     juju = context.get_juju()
     juju.run(unit, "set-node-config", params={"reset": True})
+
+
+@then(
+    parsers.parse("a slurm job submitted from unit '{login_unit}' runs on unit '{compute_unit}'")
+)
+def job_submission(context: Context, login_unit: str, compute_unit: str) -> None:
+    """Submit a job from the login node and verify it runs on the compute node."""
+    juju = context.get_juju()
+    slurmd_result = juju.exec("hostname -s", unit=compute_unit)
+    completed_jobs: list[str] = []
+
+    def ready(_ctx: Context) -> bool:
+        try:
+            job_name = f"bdd-{uuid.uuid4().hex[:8]}"
+            sackd_result = juju.exec(
+                f"srun -J {job_name} --partition {SLURMD_APP_NAME} hostname -s",
+                unit=login_unit,
+                wait=120,
+            )
+            if not sackd_result.success:
+                logger.debug(
+                    "srun job '%s' failed (return_code=%s): stdout='%s', stderr='%s'",
+                    job_name,
+                    sackd_result.return_code,
+                    sackd_result.stdout,
+                    sackd_result.stderr,
+                )
+                return False
+            if sackd_result.stdout != slurmd_result.stdout:
+                logger.debug(
+                    "srun job '%s' output mismatch: srun stdout='%s', slurmd hostname='%s'",
+                    job_name,
+                    sackd_result.stdout,
+                    slurmd_result.stdout,
+                )
+                return False
+            completed_jobs.append(job_name)
+            return True
+        except Exception as exc:
+            logger.debug("srun job attempt raised exception: %s", exc)
+            return False
+
+    context.wait(ready=ready, timeout=600)
+
+    for job_name in completed_jobs[-3:]:
+        sacct_result = juju.exec(
+            f"sacct --name={job_name} --format=State --noheader --parsable2",
+            unit=login_unit,
+        )
+        assert sacct_result.success
+        states = [s.strip() for s in sacct_result.stdout.strip().splitlines() if s.strip()]
+        assert states, f"no sacct record found for job '{job_name}'"
+        assert any("COMPLETED" in s for s in states), (
+            f"job '{job_name}' did not complete, states: {states}"
+        )
 
 
 def pytest_addoption(parser) -> None:

@@ -1183,7 +1183,7 @@ requires-dist = [
     { name = "pyright", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = "~=9.0" },
-    { name = "pytest-jubilant-bdd", marker = "extra == 'dev'" },
+    { name = "pytest-jubilant-bdd", marker = "extra == 'dev'", specifier = "~=0.6.0" },
     { name = "pytest-order", marker = "extra == 'dev'", specifier = "~=1.4" },
     { name = "python-dotenv", marker = "extra == 'dev'", specifier = "~=1.2.2" },
     { name = "pyyaml", marker = "extra == 'dev'" },

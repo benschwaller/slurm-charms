@@ -12,13 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""BDD step definitions for slurmctld high availability.
-
-Covers shared storage (MicroCeph + CephFS) deployment, scale up/down,
-service and unit failover/recovery, degraded scale-up, and removal of a
-failed controller. Gated by the ``high_availability`` marker
-(``--run-high-availability``).
-"""
+"""BDD step definitions for slurmctld high availability."""
 
 import json
 import logging
@@ -26,7 +20,7 @@ import subprocess
 
 import jubilant
 import pytest
-from bdd_utils import node_name, scontrol_show_node
+from utils import node_name, scontrol_show_node
 from constants import (
     CEPHFS_SERVER_PROXY_APP_NAME,
     MICROCEPH_APP_NAME,

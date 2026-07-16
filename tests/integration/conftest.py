@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2023-2025 Canonical Ltd.
+# Copyright 2026 Canonical Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ from collections.abc import Iterator
 
 import pytest
 from aiosmtpd.controller import Controller
-from bdd_utils import MailHandler, interface_ipv4
+from utils import MailHandler, interface_ipv4
 from constants import NETWORK_INTERFACE, SLURMD_APP_NAME, SMTP_SERVER_PORT
 from pytest_bdd import parsers, then, when
 from pytest_jubilant_bdd import Context

@@ -12,13 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""BDD step definitions for Slurm job submission.
-
-Covers basic job submission and GPU job submission with a mock NVIDIA GPU
-device. The GPU mock setup is tightly coupled to the Slurm
-``Autodetect=nvidia`` plugin; changes to that method in future Slurm
-revisions may break these steps.
-"""
+"""BDD step definitions for Slurm job submission."""
 
 import logging
 import textwrap

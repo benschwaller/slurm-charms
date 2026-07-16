@@ -12,13 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""BDD step definitions for Slurm key rotation.
-
-Covers ``rotate-auth-key`` and ``rotate-jwt-key`` action verification,
-including cross-unit key propagation, REST API token invalidation, and
-diagnostic endpoint probing. Replaces ``tenacity.Retrying`` with
-``context.wait()``.
-"""
+"""BDD step definitions for Slurm key rotation."""
 
 import json
 import logging

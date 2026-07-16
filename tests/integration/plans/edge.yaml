@@ -1,22 +1,31 @@
+# Copyright 2026 Canonical Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # gherkinator test plan for the Slurm charms BDD migration.
 #
 # This file is the SINGLE SOURCE OF TRUTH for every BDD scenario in this
 # repo. Edit it with `gherkinator edit`, validate with `gherkinator
 # validate`, and regenerate the .feature files with:
 #
-#   gherkinator generate --format gh tests/integration/features/test-plan.yaml \
+#   gherkinator generate --format gh tests/integration/plans/edge.yaml \
 #     --output-dir tests/integration/features
 #
 # Do NOT hand-edit the generated .feature files — they are overwritten on
 # every `gherkinator generate`.
 #
-# The original non-BDD tests (tests/integration/test_charm.py, test_ha.py,
-# test_mail.py, test_oci_runtime.py, test_influxdb.py) have been removed.
-# All scenarios are now BDD-driven via the .feature files and step
-# definitions in tests/integration/test_*_bdd.py.
-#
-# Cross-file ordering is preserved via @pytest.mark.order on the
-# scenario-loading modules (see tests/integration/test_*_bdd.py). The
+# Step definitions live in tests/integration/test_*.py. Cross-file ordering
+# is preserved via @pytest.mark.order on each scenario-loading module. The
 # `type`/`status`/`risk` fields become Gherkin tags via gherkinator.
 
 ---
@@ -226,7 +235,7 @@ scenarios:
 ---
 feature: "Slurmctld high availability"
 type: reliability
-status: planned
+status: implemented
 risk: edge
 description: "High availability for slurmctld: shared storage deploy, scale up/down, service and unit failover and recovery, degraded scale-up, and removal of a failed controller. Gated by the high_availability marker (--run-high-availability)."
 background: |-

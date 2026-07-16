@@ -307,26 +307,26 @@ scenarios:
     Then the slurm sinfo command succeeds on unit 'login/0'
     Then the slurmctld service on the controller that is primary is running as primary
     Then the slurmctld service on the controller that is backup is running in background mode
-  #- |-
-  #  Scale up slurmctld while primary is failed
-  #  Given I record the current slurmctld controller mode assignments
-  #  Given the slurmctld controller that is primary reports ping status 'UP'
-  #  When I power off the primary slurmctld machine
-  #  Then the primary slurmctld machine is powered off
-  #  Then the slurmctld controller that is primary reports ping status 'DOWN'
-  #  Then the slurmctld controller that is backup reports ping status 'UP'
-  #  Given I add '1' units to app 'controller'
-  #  Then there are '3' slurmctld controllers registered
-  #  Then the slurmctld controller that is primary reports ping status 'DOWN'
-  #  Then the slurmctld controller that is primary has the hostname recorded for primary
-  #  Then the slurmctld controller that is backup1 reports ping status 'UP'
-  #  Then the slurmctld controller that is backup1 has the hostname recorded for backup
-  #  Then the slurmctld controller that is backup2 reports ping status 'UP'
-  #- |-
-  #  Remove failed controller unit
-  #  Given there are '1' down and '2' up slurmctld controller machines
-  #  When I remove the slurmctld controller that is down
-  #  Then the workload status for app 'controller' is 'active'
-  #  Then there are '2' slurmctld controllers registered
-  #  Then the slurmctld controller that is primary reports ping status 'UP'
-  #  Then the slurmctld controller that is backup reports ping status 'UP'
+  - |-
+    Scale up slurmctld while primary is failed
+    Given I record the current slurmctld controller mode assignments
+    Given the slurmctld controller that is primary reports ping status 'UP'
+    When I power off the primary slurmctld machine
+    Then the primary slurmctld machine is powered off
+    Then the slurmctld controller that is primary reports ping status 'DOWN'
+    Then the slurmctld controller that is backup reports ping status 'UP'
+    Given I add '1' units to app 'controller'
+    Then there are '3' slurmctld controllers registered
+    Then the slurmctld controller that is primary reports ping status 'DOWN'
+    Then the slurmctld controller that is primary has the hostname recorded for primary
+    Then the slurmctld controller that is backup1 reports ping status 'UP'
+    Then the slurmctld controller that is backup1 has the hostname recorded for backup
+    Then the slurmctld controller that is backup2 reports ping status 'UP'
+  - |-
+    Remove failed controller unit
+    Given there are '1' down and '2' up slurmctld controller machines
+    When I remove the slurmctld controller that is down
+    Then the workload status for app 'controller' is 'active'
+    Then there are '2' slurmctld controllers registered
+    Then the slurmctld controller that is primary reports ping status 'UP'
+    Then the slurmctld controller that is backup reports ping status 'UP'

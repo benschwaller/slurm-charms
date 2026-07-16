@@ -284,8 +284,29 @@ def controller_count(context: Context, count: str) -> None:
 
 @when(parsers.parse("I remove the slurmctld controller that is {mode}"))
 def remove_controller_unit(context: Context, mode: str) -> None:
-    """Remove the slurmctld unit corresponding to the given controller mode."""
+    """Remove the slurmctld unit corresponding to the given controller mode.
+
+    ``mode`` is normally a slurmctld ping mode (primary, backup, backup1,
+    ...). The literal value ``down`` is handled specially: the unit whose
+    backing machine is powered off (juju status ``down``) is removed with
+    ``force=True`` rather than being looked up via ``scontrol ping``.
+    """
     juju = context.get_juju()
+    if mode == "down":
+        status = juju.status()
+        down_unit = None
+        for unit, unit_status in status.apps[SLURMCTLD_APP_NAME].units.items():
+            if status.machines[unit_status.machine].juju_status.current == "down":
+                down_unit = unit
+                break
+        assert down_unit is not None, "no down controller unit found"
+        juju.remove_unit(down_unit, force=True)
+        juju.wait(
+            lambda status: jubilant.all_active(status, *SLURM_APPS),
+            timeout=SLURM_WAIT_TIMEOUT,
+        )
+        return
+
     controllers = _get_slurm_controllers(context)
     assert mode in controllers, f"controller mode '{mode}' not found"
     removed_unit = controllers[mode]["unit"]
@@ -296,24 +317,6 @@ def remove_controller_unit(context: Context, mode: str) -> None:
         and len(status.apps[SLURMCTLD_APP_NAME].units) == expected_units
         and jubilant.all_active(status, *SLURM_APPS),
         error=lambda status: jubilant.any_error(status, SLURMCTLD_APP_NAME),
-        timeout=SLURM_WAIT_TIMEOUT,
-    )
-
-
-@when("I remove the slurmctld controller that is down")
-def remove_down_controller(context: Context) -> None:
-    """Find and remove the powered-off slurmctld controller unit."""
-    juju = context.get_juju()
-    status = juju.status()
-    down_unit = None
-    for unit, unit_status in status.apps[SLURMCTLD_APP_NAME].units.items():
-        if status.machines[unit_status.machine].juju_status.current == "down":
-            down_unit = unit
-            break
-    assert down_unit is not None, "no down controller unit found"
-    juju.remove_unit(down_unit, force=True)
-    juju.wait(
-        lambda status: jubilant.all_active(status, *SLURM_APPS),
         timeout=SLURM_WAIT_TIMEOUT,
     )
 

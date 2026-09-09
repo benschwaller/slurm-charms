@@ -229,3 +229,44 @@ class TestSlurmManager:
 
             case _:
                 assert mock_run.call_args[0][0] == ["systemctl", "daemon-reload"]
+
+    def test_reconfigure(self, mock_manager, mock_run) -> None:
+        """Test the `reconfigure` method.
+
+        Verify that the systemd start-rate-limit counter is reset before the
+        charm-initiated restart, so repeated configuration changes cannot trip
+        `StartLimitBurst` and cause `start-limit-hit`.
+        """
+        manager, service = mock_manager
+
+        manager.reconfigure()
+
+        # The three systemctl invocations must occur in this order:
+        # `reset-failed` (to clear the start-limit counter), `enable`, then `restart`.
+        systemctl_calls = [
+            call[0] for call in mock_run.call_args_list if call[0][:1] == ["systemctl"]
+        ]
+        assert systemctl_calls == [
+            ["systemctl", "reset-failed", service],
+            ["systemctl", "enable", service],
+            ["systemctl", "restart", service],
+        ]
+
+    def test_reconfigure_error(self, mock_manager, mock_run) -> None:
+        """Test that a `SlurmOpsError` is raised if the restart fails."""
+        manager, service = mock_manager
+
+        mock_run.side_effect = subprocess.CalledProcessError(
+            cmd=["systemctl", "restart", service],
+            returncode=1,
+            output="",
+            stderr="restart failed",
+        )
+
+        with pytest.raises(SlurmOpsError) as exec_info:
+            manager.reconfigure()
+
+        assert exec_info.type == SlurmOpsError
+        assert exec_info.value.message == (
+            f"failed to reconfigure Slurm service '{service}'"
+        )

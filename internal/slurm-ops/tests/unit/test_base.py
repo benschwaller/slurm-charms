@@ -230,7 +230,7 @@ class TestSlurmManager:
             case _:
                 assert mock_run.call_args[0][0] == ["systemctl", "daemon-reload"]
 
-    def test_reconfigure(self, mock_manager, mock_run) -> None:
+    def test_reconfigure(self, mock_manager, mock_run, mocker: MockerFixture, fs: FakeFilesystem) -> None:
         """Test the `reconfigure` method.
 
         Verify that the systemd start-rate-limit counter is reset before the
@@ -239,12 +239,20 @@ class TestSlurmManager:
         """
         manager, service = mock_manager
 
-        manager.reconfigure()
+        # `slurmctld`'s `reconfigure` defaults to the `scontrol reconfigure` path;
+        # `restart=True` routes it to the base implementation under test.
+        kwargs = {"restart": True} if service == "slurmctld" else {}
+        if service == "slurmdbd":
+            # `slurmdbd`'s `reconfigure` merges its config file before restarting.
+            fs.create_dir("/etc/slurm")
+            mocker.patch("shutil.chown")
+
+        manager.reconfigure(**kwargs)
 
         # The three systemctl invocations must occur in this order:
         # `reset-failed` (to clear the start-limit counter), `enable`, then `restart`.
         systemctl_calls = [
-            call[0] for call in mock_run.call_args_list if call[0][:1] == ["systemctl"]
+            call[0][0] for call in mock_run.call_args_list if call[0][0][:1] == ["systemctl"]
         ]
         assert systemctl_calls == [
             ["systemctl", "reset-failed", service],
@@ -252,7 +260,7 @@ class TestSlurmManager:
             ["systemctl", "restart", service],
         ]
 
-    def test_reconfigure_error(self, mock_manager, mock_run) -> None:
+    def test_reconfigure_error(self, mock_manager, mock_run, mocker: MockerFixture, fs: FakeFilesystem) -> None:
         """Test that a `SlurmOpsError` is raised if the restart fails."""
         manager, service = mock_manager
 
@@ -263,8 +271,16 @@ class TestSlurmManager:
             stderr="restart failed",
         )
 
+        # `slurmctld`'s `reconfigure` defaults to the `scontrol reconfigure` path;
+        # `restart=True` routes it to the base implementation under test.
+        kwargs = {"restart": True} if service == "slurmctld" else {}
+        if service == "slurmdbd":
+            # `slurmdbd`'s `reconfigure` merges its config file before restarting.
+            fs.create_dir("/etc/slurm")
+            mocker.patch("shutil.chown")
+
         with pytest.raises(SlurmOpsError) as exec_info:
-            manager.reconfigure()
+            manager.reconfigure(**kwargs)
 
         assert exec_info.type == SlurmOpsError
         assert exec_info.value.message == (

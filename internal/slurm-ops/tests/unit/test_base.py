@@ -260,29 +260,62 @@ class TestSlurmManager:
             ["systemctl", "restart", service],
         ]
 
-    def test_reconfigure_error(self, mock_manager, mock_run, mocker: MockerFixture, fs: FakeFilesystem) -> None:
-        """Test that a `SlurmOpsError` is raised if the restart fails."""
+    def test_reconfigure_reset_failed_error(
+        self, mock_manager, mock_run, mocker: MockerFixture, fs: FakeFilesystem
+    ) -> None:
+        """Test that a `reset-failed` error is wrapped in `SlurmOpsError`."""
         manager, service = mock_manager
 
+        # The first systemctl call in `reconfigure` is `reset-failed`.
         mock_run.side_effect = subprocess.CalledProcessError(
-            cmd=["systemctl", "restart", service],
+            cmd=["systemctl", "reset-failed", service],
             returncode=1,
             output="",
-            stderr="restart failed",
+            stderr="reset-failed failed",
         )
 
-        # `slurmctld`'s `reconfigure` defaults to the `scontrol reconfigure` path;
-        # `restart=True` routes it to the base implementation under test.
         kwargs = {"restart": True} if service == "slurmctld" else {}
         if service == "slurmdbd":
-            # `slurmdbd`'s `reconfigure` merges its config file before restarting.
+            # `slurmdbd` merges its config file before restarting.
             fs.create_dir("/etc/slurm")
+            fs.create_file("/etc/slurm/slurmdbd.conf")
             mocker.patch("shutil.chown")
 
         with pytest.raises(SlurmOpsError) as exec_info:
             manager.reconfigure(**kwargs)
 
-        assert exec_info.type == SlurmOpsError
+        assert exec_info.value.message == (
+            f"failed to reconfigure Slurm service '{service}'"
+        )
+
+    def test_reconfigure_restart_error(
+        self, mock_manager, mock_run, mocker: MockerFixture, fs: FakeFilesystem
+    ) -> None:
+        """Test that a restart error is wrapped in `SlurmOpsError`."""
+        manager, service = mock_manager
+
+        # Allow `reset-failed` and `enable` to succeed, then fail the restart.
+        mock_run.side_effect = [
+            subprocess.CompletedProcess([], returncode=0),
+            subprocess.CompletedProcess([], returncode=0),
+            subprocess.CalledProcessError(
+                cmd=["systemctl", "restart", service],
+                returncode=1,
+                output="",
+                stderr="restart failed",
+            ),
+        ]
+
+        kwargs = {"restart": True} if service == "slurmctld" else {}
+        if service == "slurmdbd":
+            # `slurmdbd` merges its config file before restarting.
+            fs.create_dir("/etc/slurm")
+            fs.create_file("/etc/slurm/slurmdbd.conf")
+            mocker.patch("shutil.chown")
+
+        with pytest.raises(SlurmOpsError) as exec_info:
+            manager.reconfigure(**kwargs)
+
         assert exec_info.value.message == (
             f"failed to reconfigure Slurm service '{service}'"
         )

@@ -24,7 +24,7 @@ from unittest.mock import call
 import ops
 import pytest
 from charmed_slurm_oci_runtime_interface import OCIRuntimeDisconnectedEvent, OCIRuntimeReadyEvent
-from charmed_slurm_slurmctld_interface import AUTH_KEY_LABEL
+from charmed_slurm_slurmctld_interface import AUTH_KEY_LABEL, JWT_KEY_LABEL
 from charmlibs import apt
 from config import ConfigData
 from conftest import EXAMPLE_KEY_ENTRY, patch_slurmctld_active
@@ -1164,6 +1164,63 @@ class TestReconfigure:
 
         mock_reconfigure.assert_not_called()
 
+    def test_reconfigure_restart_failure_blocks(
+        self, mock_charm, mocker: MockerFixture, ha_peer_integration, fs: FakeFilesystem
+    ) -> None:
+        """A failed service restart during reconfiguration blocks the unit.
+
+        Failure mode: the restart failure is swallowed and `scontrol
+        reconfigure` proceeds against a dead service, or peers are signalled
+        to restart a service that never came back up.
+        """
+        fs.create_file(SLURM_CONF, contents="clustername=charmed-hpc\n")
+
+        with mock_charm(
+            mock_charm.on.relation_changed(ha_peer_integration, remote_unit=1),
+            testing.State(leader=True, relations={ha_peer_integration}, planned_units=2),
+        ) as manager:
+            patch_slurmctld_active(manager, mocker)
+            mocker.patch.object(
+                manager.charm.slurmctld, "reconfigure", side_effect=SlurmOpsError("restart failed")
+            )
+            state = manager.run()
+
+        assert state.unit_status == ops.BlockedStatus(
+            "Failed to restart `slurmctld.service`. See `juju debug-log` for details"
+        )
+        # The restart signal is only sent after a successful restart.
+        integration = state.get_relation(ha_peer_integration.id)
+        assert "restart_signal" not in integration.local_app_data
+
+    def test_reconfigure_scontrol_failure_blocks(
+        self, mock_charm, mocker: MockerFixture, ha_peer_integration, fs: FakeFilesystem
+    ) -> None:
+        """A failed `scontrol reconfigure` blocks the unit.
+
+        Failure mode: the configuration failure is swallowed, leaving
+        `slurm.conf` changes unapplied while the unit reports healthy.
+        """
+        fs.create_file(SLURM_CONF, contents="clustername=charmed-hpc\n")
+
+        with mock_charm(
+            mock_charm.on.relation_changed(ha_peer_integration, remote_unit=1),
+            testing.State(leader=True, relations={ha_peer_integration}, planned_units=2),
+        ) as manager:
+            patch_slurmctld_active(manager, mocker)
+            mocker.patch.object(
+                manager.charm.slurmctld,
+                "reconfigure",
+                side_effect=[None, SlurmOpsError("scontrol failed")],
+            )
+            state = manager.run()
+
+        assert state.unit_status == ops.BlockedStatus(
+            "Failed to apply new Slurm configuration. See `juju debug-log` for details"
+        )
+        # Peers were already signalled to restart before `scontrol reconfigure` ran.
+        integration = state.get_relation(ha_peer_integration.id)
+        assert "restart_signal" in integration.local_app_data
+
 
 class TestSmtpScaleDown:
     """Tests for SMTP cleanup behavior when this unit is scaled down."""
@@ -1192,3 +1249,351 @@ class TestSmtpScaleDown:
             manager.run()
 
         mock_remove.assert_not_called()
+
+
+class TestOnInstall:
+    """Tests for the `_on_install` event handler."""
+
+    @pytest.mark.parametrize(
+        "leader",
+        (
+            pytest.param(True, id="leader"),
+            pytest.param(False, id="not leader"),
+        ),
+    )
+    def test_on_install_generates_keys_when_no_secrets_exist(
+        self, mock_charm, mocker: MockerFixture, leader
+    ) -> None:
+        """The leader generates and publishes both keys when no secrets exist.
+
+        Failure mode: keys are not created and `slurmctld` cannot start, or a
+        non-leader generates keys, racing the leader and clobbering the
+        cluster's auth material.
+        """
+        with mock_charm(mock_charm.on.install(), testing.State(leader=leader)) as manager:
+            mocker.patch.object(manager.charm.slurmctld, "install")
+            mocker.patch.object(manager.charm.slurmctld, "version", return_value="24.05.2")
+            mocker.patch.object(
+                manager.charm.slurmctld.jwt, "generate", return_value={"key": "jwt-key"}
+            )
+            mocker.patch.object(
+                manager.charm.slurmctld.key,
+                "generate",
+                return_value={"key": "auth-key", "keyid": "keyid-1"},
+            )
+            state = manager.run()
+
+        labels = {secret.label for secret in state.secrets}
+        if leader:
+            assert JWT_KEY_FILE.read_text() == "jwt-key"
+            assert "auth-key" in Path("/etc/slurm/slurm.jwks").read_text()
+            assert {AUTH_KEY_LABEL, JWT_KEY_LABEL} <= labels
+        else:
+            # Only the leader may generate and publish keys.
+            assert not JWT_KEY_FILE.exists()
+            assert AUTH_KEY_LABEL not in labels
+            assert JWT_KEY_LABEL not in labels
+
+    def test_on_install_restores_missing_key_file_from_secret(
+        self, mock_charm, mocker: MockerFixture
+    ) -> None:
+        """An existing secret is the source of truth: a missing key file is restored, not regenerated.
+
+        Failure mode: a new leader regenerates keys instead of restoring
+        them, invalidating the cluster's auth material shared with every
+        other Slurm service.
+        """
+        jwt_secret = testing.Secret({"key": "restored-jwt"}, owner="app", label=JWT_KEY_LABEL)
+        auth_secret = testing.Secret(
+            {"key": "restored-auth", "keyid": "keyid-1"}, owner="app", label=AUTH_KEY_LABEL
+        )
+        # The auth key file exists (created by the test fixture); the JWT key file does not.
+
+        with mock_charm(
+            mock_charm.on.install(),
+            testing.State(leader=True, secrets={jwt_secret, auth_secret}),
+        ) as manager:
+            mocker.patch.object(manager.charm.slurmctld, "install")
+            mocker.patch.object(manager.charm.slurmctld, "version", return_value="24.05.2")
+            mock_jwt_generate = mocker.patch.object(manager.charm.slurmctld.jwt, "generate")
+            mock_key_generate = mocker.patch.object(manager.charm.slurmctld.key, "generate")
+            manager.run()
+
+        assert JWT_KEY_FILE.read_text() == "restored-jwt"
+        # The existing auth key file is not clobbered.
+        assert Path("/etc/slurm/slurm.jwks").read_text() == '{"keys": []}'
+        mock_jwt_generate.assert_not_called()
+        mock_key_generate.assert_not_called()
+
+    def test_on_install_failure_blocks_and_defers(self, mock_charm, mocker: MockerFixture) -> None:
+        """A `SlurmOpsError` during install blocks the unit and defers the event.
+
+        Failure mode: an install failure is swallowed or never retried,
+        leaving the unit in a non-running state with no operator-visible
+        status.
+        """
+        with mock_charm(mock_charm.on.install(), testing.State(leader=True)) as manager:
+            mocker.patch.object(
+                manager.charm.slurmctld, "install", side_effect=SlurmOpsError("install failed")
+            )
+            state = manager.run()
+
+        assert state.unit_status == ops.BlockedStatus(
+            "Failed to install `slurmctld`. See `juju debug-log` for details."
+        )
+        assert any(event.name == "install" for event in state.deferred)
+
+
+class TestKeyRotation:
+    """Tests for the `rotate-auth-key` and `rotate-jwt-key` action guards and failures."""
+
+    @pytest.mark.parametrize(
+        "action,name",
+        (
+            pytest.param("rotate-auth-key", "auth", id="rotate auth key"),
+            pytest.param("rotate-jwt-key", "JWT", id="rotate jwt key"),
+        ),
+    )
+    def test_rotate_key_action_fails_on_non_leader(self, mock_charm, action, name) -> None:
+        """Key rotation is rejected on non-leader units.
+
+        Failure mode: a non-leader rotates keys, desynchronizing the
+        cluster's auth material from the Juju secret.
+        """
+        with pytest.raises(testing.ActionFailed) as exec_info:
+            mock_charm.run(mock_charm.on.action(action), testing.State(leader=False))
+
+        assert exec_info.value.message == f"Only the leader unit can rotate the {name} key."
+
+    def test_rotate_auth_key_apply_failure_fails_action(
+        self, mock_charm, mocker: MockerFixture
+    ) -> None:
+        """A failure applying the new key fails the action with an operator-visible message.
+
+        Failure mode: the key file is left inconsistent with the Juju
+        secret while the action reports success.
+        """
+        with mock_charm(
+            mock_charm.on.action("rotate-auth-key"), testing.State(leader=True)
+        ) as manager:
+            mocker.patch.object(
+                manager.charm.slurmctld.key,
+                "generate",
+                return_value={"key": "new-key", "keyid": "keyid-2"},
+            )
+            mocker.patch.object(
+                manager.charm.slurmctld.key,
+                "apply",
+                side_effect=SlurmOpsError("apply failed"),
+            )
+            with pytest.raises(testing.ActionFailed) as exec_info:
+                manager.run()
+
+        assert exec_info.value.message == (
+            "Failed to update auth key. See `juju debug-log` for details."
+        )
+
+    def test_rotate_auth_key_publish_failure_fails_action(
+        self, mock_charm, mocker: MockerFixture, peer_integration
+    ) -> None:
+        """A failure publishing the new key secret fails the action.
+
+        Failure mode: the key file is rotated but the Juju secret is not,
+        so peer units never receive the new key and authentication breaks.
+        """
+        with mock_charm(
+            mock_charm.on.action("rotate-auth-key"),
+            testing.State(leader=True, relations={peer_integration}),
+        ) as manager:
+            mocker.patch.object(
+                manager.charm.slurmctld.key,
+                "generate",
+                return_value={"key": "new-key", "keyid": "keyid-2"},
+            )
+            mocker.patch.object(manager.charm.slurmctld.key, "apply")
+            mocker.patch("charm.slurmctld_ready", return_value=True)
+            mocker.patch.object(manager.charm.slurmctld, "reconfigure")
+            # No secret with the auth key label exists in the state, so publishing fails.
+            with pytest.raises(testing.ActionFailed) as exec_info:
+                manager.run()
+
+        assert exec_info.value.message == (
+            "Failed to publish new auth key secret. See `juju debug-log` for details."
+        )
+
+
+class TestSecretLifecycle:
+    """Tests for the secret-changed and secret-remove event handlers."""
+
+    def test_on_secret_remove_auth_key_keeps_latest_key(
+        self, mock_charm, mocker: MockerFixture, peer_integration
+    ) -> None:
+        """Removing an old auth key revision after rotation keeps only the latest key.
+
+        This is the completion step of key rotation: the old revision is
+        only removed once a newer one exists. Failure mode: the old key is
+        never cleaned up and the unit stays in `WaitingStatus` ("rotation
+        in progress") forever.
+        """
+        auth_secret = testing.Secret(
+            {"key": "auth-key", "keyid": "keyid-1"}, owner="app", label=AUTH_KEY_LABEL
+        )
+
+        # Rotate the key first: Juju only fires `secret-remove` for old revisions.
+        with mock_charm(
+            mock_charm.on.action("rotate-auth-key"),
+            testing.State(leader=True, relations={peer_integration}, secrets={auth_secret}),
+        ) as manager:
+            mocker.patch.object(
+                manager.charm.slurmctld.key,
+                "generate",
+                return_value={"key": "new-key", "keyid": "keyid-2"},
+            )
+            mocker.patch.object(manager.charm.slurmctld.key, "apply")
+            mocker.patch("charm.slurmctld_ready", return_value=True)
+            mocker.patch.object(manager.charm.slurmctld, "reconfigure")
+            state = manager.run()
+
+        rotated = next(secret for secret in state.secrets if secret.label == AUTH_KEY_LABEL)
+        with mock_charm(
+            mock_charm.on.secret_remove(rotated, revision=1),
+            testing.State(leader=True, relations={peer_integration}, secrets={rotated}),
+        ) as manager:
+            patch_slurmctld_active(manager, mocker)
+            mock_keep = mocker.patch.object(manager.charm.slurmctld.key, "keep_latest_key")
+            mocker.patch.object(manager.charm.slurmctld, "reconfigure")
+            # Scenario cannot fire `secret-changed` for an app-owned secret, so
+            # advance the tracked revision directly, as `_on_secret_changed`
+            # does when Juju notifies the owner of the new revision.
+            manager.charm.model.get_secret(label=AUTH_KEY_LABEL).get_content(refresh=True)
+            manager.run()
+
+        mock_keep.assert_called_once()
+
+    def test_on_secret_remove_jwt_key_is_ignored(self, mock_charm, mocker: MockerFixture) -> None:
+        """Removing a JWT key revision does not trigger auth key cleanup.
+
+        Failure mode: JWT rotation triggers `keep_latest_key` on the auth
+        key mid-rotation, breaking cluster authentication.
+        """
+        jwt_secret = testing.Secret({"key": "jwt-key"}, owner="app", label=JWT_KEY_LABEL)
+        with mock_charm(
+            mock_charm.on.secret_remove(jwt_secret, revision=1),
+            testing.State(leader=True, secrets={jwt_secret}),
+        ) as manager:
+            patch_slurmctld_active(manager, mocker)
+            mock_keep = mocker.patch.object(manager.charm.slurmctld.key, "keep_latest_key")
+            manager.run()
+
+        mock_keep.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "label,expected_tracked",
+        (
+            pytest.param(AUTH_KEY_LABEL, "new-key", id="auth key revision refreshed"),
+            pytest.param("unrelated-secret", "old-key", id="unrelated secret ignored"),
+        ),
+    )
+    def test_on_secret_changed_label_filter(
+        self, mock_charm, mocker: MockerFixture, label, expected_tracked
+    ) -> None:
+        """Only auth/JWT secret changes refresh the tracked revision.
+
+        Failure mode: every secret change forces revision tracking,
+        breaking the secret-remove bookkeeping that key rotation relies on.
+        """
+        secret = testing.Secret(
+            tracked_content={"key": "old-key"},
+            latest_content={"key": "new-key"},
+            label=label,
+        )
+        with mock_charm(
+            mock_charm.on.secret_changed(secret),
+            testing.State(leader=True, secrets={secret}),
+        ) as manager:
+            mocker.patch.object(manager.charm.slurmctld, "is_installed", return_value=True)
+            state = manager.run()
+
+        updated = next(secret for secret in state.secrets if secret.label == label)
+        assert updated.tracked_content["key"] == expected_tracked
+
+
+class TestRestartSignal:
+    """Tests for the peer restart-signal propagation mechanism."""
+
+    @pytest.mark.parametrize(
+        "leader",
+        (
+            pytest.param(True, id="leader"),
+            pytest.param(False, id="not leader"),
+        ),
+    )
+    def test_restart_signal_restarts_non_leader_only(
+        self, mock_charm, mocker: MockerFixture, fs: FakeFilesystem, leader
+    ) -> None:
+        """A restart signal restarts `slurmctld` on non-leader units only.
+
+        The leader restarts its own service as part of `_reconfigure`;
+        non-leaders act on the signal. Failure mode: backup controllers
+        never pick up `slurm.conf` changes, or the leader restarts twice.
+        """
+        fs.add_mount_point(HA_MOUNT_LOCATION)
+        hostname = socket.gethostname().split(".")[0]
+        fs.create_file(SLURM_CONF, contents=f"clustername=charmed-hpc\nslurmctldhost={hostname}\n")
+        fs.create_file(JWT_KEY_FILE, contents="dummy-jwt-key")
+
+        peer = testing.PeerRelation(
+            endpoint=PEER_INTEGRATION_NAME,
+            interface="slurmctld-peer",
+            local_app_data={"cluster_name": '"charmed-hpc"', "restart_signal": '"signal-1"'},
+            peers_data={1: {"hostname": '"controller-1"'}},
+        )
+
+        with mock_charm(
+            mock_charm.on.relation_changed(peer, remote_unit=1),
+            testing.State(leader=leader, relations={peer}, planned_units=2),
+        ) as manager:
+            patch_slurmctld_active(manager, mocker)
+            mock_restart = mocker.patch.object(manager.charm.slurmctld.service, "restart")
+            manager.run()
+
+        if leader:
+            # The leader restarts within `_reconfigure`, not on the signal.
+            mock_restart.assert_not_called()
+        else:
+            mock_restart.assert_called_once()
+
+
+class TestSlurmdNodeDeparture:
+    """Tests for the `_on_slurmd_node_departed` event handler failure path."""
+
+    def test_on_slurmd_node_departed_delete_failure_blocks_and_defers(
+        self, mock_charm, mocker: MockerFixture
+    ) -> None:
+        """A failed node deletion blocks the unit and defers the event.
+
+        Failure mode: the departure is silently dropped and the node remains
+        registered in Slurm, poisoning scheduling.
+        """
+        integration = testing.Relation(
+            endpoint=SLURMD_INTEGRATION_NAME,
+            interface="slurmd",
+            remote_app_name="slurmd",
+        )
+        with mock_charm(
+            mock_charm.on.relation_departed(integration, departing_unit=2),
+            testing.State(leader=True, relations={integration}),
+        ) as manager:
+            mocker.patch.object(manager.charm.slurmctld, "is_installed", return_value=True)
+            mocker.patch.object(
+                manager.charm.slurmctld,
+                "delete_compute_node",
+                side_effect=SlurmOpsError("delete failed"),
+            )
+            state = manager.run()
+
+        assert state.unit_status == ops.BlockedStatus(
+            "Failed to delete departing compute node `slurmd-2` from Slurm. "
+            "See `juju debug-log` for details"
+        )
+        assert any("departed" in event.name for event in state.deferred)

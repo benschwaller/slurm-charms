@@ -104,18 +104,26 @@ def configure() -> Generator[MailConfig]:
     if not config_path.exists():
         _initialize_config_file(config_path)
 
+    section = "slurm-send-mail"
     config = configparser.RawConfigParser()
     # Preserve camelCase keys, such as smtpServer
     config.optionxform = str  # pyright: ignore[reportAttributeAccessIssue]
-    config.read(config_path)
+    try:
+        config.read(config_path)
+        damaged = not config.has_section(section)
+    except configparser.Error:
+        damaged = True
 
-    # Ensure the required section exists, reinitialize if not
-    section = "slurm-send-mail"
-    if not config.has_section(section):
+    # Reinitialize the configuration file if it is damaged (e.g. truncated by a crash).
+    # Re-read into a fresh parser so damaged sections are not preserved on write.
+    if damaged:
         _logger.warning(
             "configuration file damaged: missing required section '%s'. reinitializing", section
         )
-        _initialize_config_file(config_path)
+        _initialize_config_file(config_path, force=True)
+        config = configparser.RawConfigParser()
+        # Preserve camelCase keys, such as smtpServer
+        config.optionxform = str  # pyright: ignore[reportAttributeAccessIssue]
         config.read(config_path)
 
     # Determine configuration changes
@@ -178,17 +186,20 @@ def uninstall() -> None:
 def _initialize_config_file(
     config_path: Path = Path(SLURM_MAIL_CONFIG_PATH),
     default_values: dict = DEFAULT_SLURM_MAIL_CONFIG,
+    *,
+    force: bool = False,
 ) -> None:
-    """Initialize the slurm-mail configuration file with default values if it does not exist.
+    """Initialize the slurm-mail configuration file with default values.
 
     Args:
         config_path: Configuration file path. Defaults to SLURM_MAIL_CONFIG_PATH.
         default_values: Default configuration values. Defaults to DEFAULT_SLURM_MAIL_CONFIG.
+        force: If `True`, overwrite the configuration file even if it already exists.
 
     Raises:
         MailOpsError: If an error occurs during configuration file initialization.
     """
-    if config_path.exists():
+    if config_path.exists() and not force:
         _logger.warning(
             "Configuration file already exists: %s. Skipping initialization", config_path
         )

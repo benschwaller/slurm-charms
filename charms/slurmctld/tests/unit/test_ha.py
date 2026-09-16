@@ -17,8 +17,10 @@
 
 import textwrap
 from pathlib import Path
+from subprocess import CalledProcessError
 from unittest.mock import call
 
+import ops
 import pytest
 from constants import HA_MOUNT_INTEGRATION_NAME, HA_MOUNT_LOCATION
 from ops import testing
@@ -135,3 +137,88 @@ class TestSlurmctldHA:
         assert (ha_etc_slurm / "slurm.conf").read_text() == slurm_conf_target
         for call_args, _ in mock_subprocess_run.call_args_list:
             assert call_args[0][0] != "/usr/bin/rsync", "rsync was called: migration was attempted"
+
+
+class TestSlurmctldHAMountRequest:
+    """Unit tests for the HA mount request and error handling paths."""
+
+    def test_ha_mount_provider_connected_requests_mount(self, mock_charm) -> None:
+        """Connecting a mount provider requests the HA shared state location.
+
+        Failure mode: the mount request is never written to the integration,
+        so the filesystem provider never mounts the shared state location and
+        HA never becomes available.
+        """
+        rel = testing.SubordinateRelation(
+            endpoint=HA_MOUNT_INTEGRATION_NAME,
+            interface=MOUNT_INTEGRATION_INTERFACE,
+        )
+        state = mock_charm.run(
+            mock_charm.on.relation_created(rel),
+            testing.State(relations={rel}, leader=True),
+        )
+
+        integration = state.get_relation(rel.id)
+        assert HA_MOUNT_LOCATION in integration.local_app_data.get("mountpoint", "")
+        assert state.unit_status == ops.MaintenanceStatus(
+            f"Requesting file system mount: {HA_MOUNT_LOCATION}"
+        )
+
+    def test_ha_mounted_defers_when_slurm_conf_missing(
+        self, mock_charm, fs: FakeFilesystem
+    ) -> None:
+        """The mounted event is deferred until the leader has written `slurm.conf`.
+
+        Failure mode: migration proceeds before the leader's configuration
+        exists, symlinking an incomplete `/etc/slurm` and losing the
+        controller configuration.
+        """
+        rel = testing.SubordinateRelation(
+            endpoint=HA_MOUNT_INTEGRATION_NAME,
+            interface=MOUNT_INTEGRATION_INTERFACE,
+            remote_unit_data={"mounted": "true"},
+        )
+        state = mock_charm.run(
+            mock_charm.on.relation_changed(rel),
+            testing.State(relations={rel}, leader=True),
+        )
+
+        assert len(state.deferred) == 1
+        # No migration occurred while configuration was missing.
+        assert not Path("/etc/slurm").is_symlink()
+
+    def test_ha_rsync_failure_defers_and_keeps_service_running(
+        self, mock_charm, mocker: MockerFixture, fs: FakeFilesystem
+    ) -> None:
+        """A failed `StateSaveLocation` migration defers the event and leaves the service running.
+
+        Failure mode: an rsync failure crashes the handler or stops
+        `slurmctld` without retrying, leaving the controller down with no
+        retry scheduled.
+        """
+        mock_subprocess_run = mocker.patch("subprocess.run")
+        mock_subprocess_run.side_effect = CalledProcessError(1, "rsync")
+
+        statesave = Path("/var/lib/slurm/checkpoint")
+        fs.create_file(
+            Path("/etc/slurm/slurm.conf"),
+            contents=textwrap.dedent(f"""\
+                slurmctldhost=hostname
+                statesavelocation={statesave}
+            """),
+        )
+
+        rel = testing.SubordinateRelation(
+            endpoint=HA_MOUNT_INTEGRATION_NAME,
+            interface=MOUNT_INTEGRATION_INTERFACE,
+            remote_unit_data={"mounted": "true"},
+        )
+        with mock_charm(
+            mock_charm.on.relation_changed(rel), testing.State(relations={rel}, leader=True)
+        ) as manager:
+            mock_stop = mocker.patch.object(manager.charm.slurmctld.service, "stop")
+            state = manager.run()
+
+        assert len(state.deferred) == 1
+        # The service is only stopped after the initial rsync succeeds.
+        mock_stop.assert_not_called()

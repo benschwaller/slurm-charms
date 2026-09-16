@@ -14,13 +14,41 @@
 
 """Configure unit tests for the `slurmctld` charmed operator."""
 
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import pytest
 from charm import SlurmctldCharm
+from constants import PEER_INTEGRATION_NAME
 from ops import testing
 from pyfakefs.fake_filesystem import FakeFilesystem
 from pytest_mock import MockerFixture
+
+if TYPE_CHECKING:
+    from scenario import Manager
+
+# A valid `slurm.jwks` key entry: exactly one key, as expected after key rotation completes.
+EXAMPLE_KEY_ENTRY = {"keys": [{"alg": "HS256", "kty": "oct", "kid": "0", "k": "xyz123=="}]}
+
+
+@pytest.fixture(scope="function")
+def peer_integration() -> testing.PeerRelation:
+    """Peer integration with a cluster name already set in the application databag."""
+    return testing.PeerRelation(
+        endpoint=PEER_INTEGRATION_NAME,
+        interface="slurmctld-peer",
+        local_app_data={"cluster_name": '"charmed-hpc"'},
+    )
+
+
+def patch_slurmctld_active(manager: "Manager[SlurmctldCharm]", mocker: MockerFixture) -> None:
+    """Patch the `slurmctld` manager so the unit reports installed, active, and key-ready.
+
+    This is the state the charm must be in before `check_slurmctld` reports `ActiveStatus`.
+    """
+    mocker.patch.object(manager.charm.slurmctld, "is_installed", return_value=True)
+    mocker.patch.object(manager.charm.slurmctld.service, "is_active", return_value=True)
+    mocker.patch.object(manager.charm.slurmctld.key, "get", return_value=EXAMPLE_KEY_ENTRY)
 
 
 @pytest.fixture(scope="function")

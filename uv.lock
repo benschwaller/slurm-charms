@@ -1124,10 +1124,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiosmtpd", marker = "extra == 'dev'", specifier = "==1.4.6" },
-<<<<<<< HEAD
     { name = "charmed-hpc-libs", extras = ["all"], marker = "extra == 'dev'", specifier = "~=0.7.1" },
-=======
->>>>>>> 7e571d6 (chore(deps): bump `charmed-hpc-libs` to 0.7.1)
     { name = "charmed-hpc-libs", extras = ["all"], marker = "extra == 'dev'", specifier = ">=0.7.1" },
     { name = "charmed-slurm-oci-runtime-interface", marker = "extra == 'dev'", editable = "pkg/slurm-oci-runtime-interface" },
     { name = "charmed-slurm-sackd-interface", marker = "extra == 'dev'", editable = "internal/sackd-interface" },
@@ -1144,8 +1141,8 @@ requires-dist = [
     { name = "influxdb", marker = "extra == 'dev'", specifier = "==5.3.2" },
     { name = "jubilant", marker = "extra == 'dev'", specifier = "~=1.12" },
     { name = "nvidia-ml-py", marker = "extra == 'dev'", specifier = "==12.560.30" },
-    { name = "ops", marker = "extra == 'dev'", specifier = "~=3.8" },
-    { name = "ops", extras = ["testing"], marker = "extra == 'dev'", specifier = "~=3.8" },
+    { name = "ops", marker = "extra == 'dev'", specifier = "~=3.8.1" },
+    { name = "ops", extras = ["testing"], marker = "extra == 'dev'", specifier = "~=3.8.1" },
     { name = "psutil", marker = "extra == 'dev'", specifier = "~=7.2" },
     { name = "pydantic", marker = "extra == 'dev'", specifier = "~=2.13" },
     { name = "pyfakefs", marker = "extra == 'dev'", specifier = "==6.2.0" },
@@ -1155,11 +1152,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = "~=9.1" },
     { name = "pytest-mock", marker = "extra == 'dev'", specifier = "~=3.15" },
     { name = "pytest-order", marker = "extra == 'dev'", specifier = "~=1.5" },
-<<<<<<< HEAD
     { name = "python-dotenv", marker = "extra == 'dev'", specifier = "~=1.2" },
-=======
-    { name = "python-dotenv", marker = "extra == 'dev'", specifier = "~=1.2.2" },
->>>>>>> 7e571d6 (chore(deps): bump `charmed-hpc-libs` to 0.7.1)
     { name = "pyyaml", marker = "extra == 'dev'" },
     { name = "rtoml", marker = "extra == 'dev'", specifier = "~=0.13" },
     { name = "ruff", marker = "extra == 'dev'" },

@@ -19,8 +19,10 @@ import json
 
 import ops
 import pytest
+from charmed_hpc_libs.errors import SystemdError
 from charmed_slurm_slurmctld_interface import JWT_KEY_LABEL
 from charmed_slurm_slurmdbd_interface import AUTH_KEY_LABEL
+from conftest import patch_slurmdbd_active
 from constants import (
     DATABASE_INTEGRATION_NAME,
     SLURM_ACCT_DATABASE_NAME,
@@ -28,7 +30,6 @@ from constants import (
 )
 from ops import testing
 from pytest_mock import MockerFixture
-from scenario.errors import UncaughtCharmError
 from slurm_ops import SlurmOpsError
 
 EXAMPLE_AUTH_KEY = "xyz123=="
@@ -177,8 +178,7 @@ class TestSlurmdbdCharm:
             ),
         ) as manager:
             slurmdbd = manager.charm.slurmdbd
-            mocker.patch.object(slurmdbd, "is_installed", return_value=True)
-            mocker.patch.object(slurmdbd.service, "is_active", return_value=True)
+            patch_slurmdbd_active(manager, mocker)
             mocker.patch("charm.slurmdbd_ready", return_value=True)
 
             mock_reconfigure = mocker.patch.object(slurmdbd, "reconfigure")
@@ -245,8 +245,7 @@ class TestSlurmdbdCharm:
             ),
         ) as manager:
             slurmdbd = manager.charm.slurmdbd
-            mocker.patch.object(slurmdbd, "is_installed", return_value=True)
-            mocker.patch.object(slurmdbd.service, "is_active", return_value=True)
+            patch_slurmdbd_active(manager, mocker)
             mock_reconfigure = mocker.patch.object(slurmdbd, "reconfigure")
 
             state = manager.run()
@@ -255,7 +254,12 @@ class TestSlurmdbdCharm:
             mock_reconfigure.assert_called_once()
             assert json.loads(slurmdbd.key.path.read_text()) == {
                 "keys": [
-                    {"alg": "HS256", "kty": "oct", "kid": EXAMPLE_AUTH_KEY_ID, "k": EXAMPLE_AUTH_KEY}
+                    {
+                        "alg": "HS256",
+                        "kty": "oct",
+                        "kid": EXAMPLE_AUTH_KEY_ID,
+                        "k": EXAMPLE_AUTH_KEY,
+                    }
                 ]
             }
             assert slurmdbd.jwt.path.read_text() == EXAMPLE_JWT_KEY
@@ -289,8 +293,7 @@ class TestSlurmdbdCharm:
             ),
         ) as manager:
             slurmdbd = manager.charm.slurmdbd
-            mocker.patch.object(slurmdbd, "is_installed", return_value=True)
-            mocker.patch.object(slurmdbd.service, "is_active", return_value=True)
+            patch_slurmdbd_active(manager, mocker)
             mock_restart = mocker.patch.object(slurmdbd.service, "restart")
 
             state = manager.run()
@@ -323,8 +326,7 @@ class TestSlurmdbdCharm:
             ),
         ) as manager:
             slurmdbd = manager.charm.slurmdbd
-            mocker.patch.object(slurmdbd, "is_installed", return_value=True)
-            mocker.patch.object(slurmdbd.service, "is_active", return_value=True)
+            patch_slurmdbd_active(manager, mocker)
             mock_restart = mocker.patch.object(slurmdbd.service, "restart")
 
             state = manager.run()
@@ -377,6 +379,59 @@ class TestSlurmdbdCharm:
         mock_restart.assert_not_called()
         assert state.unit_status == ops.BlockedStatus(
             "Failed to retrieve auth key. See `juju debug-log` for details"
+        )
+
+    @pytest.mark.parametrize(
+        "label,content,name",
+        (
+            pytest.param(
+                AUTH_KEY_LABEL,
+                {"key": EXAMPLE_AUTH_KEY, "keyid": EXAMPLE_AUTH_KEY_ID},
+                "auth",
+                id="auth key",
+            ),
+            pytest.param(JWT_KEY_LABEL, {"key": EXAMPLE_JWT_KEY}, "JWT", id="jwt key"),
+        ),
+    )
+    def test_on_secret_changed_restart_failure(
+        self, mock_charm, mocker: MockerFixture, peer_integration, leader, label, content, name
+    ) -> None:
+        """Test `_on_secret_changed` when restarting the `slurmdbd` service fails.
+
+        Failure mode: `service.restart()` raises `SystemdError`, which is a sibling of
+        `SlurmOpsError` rather than a subclass - `SlurmManager.reconfigure` wraps it, but
+        this handler calls `restart` directly. If the handler does not catch it, the
+        exception escapes, the unit lands in Juju `error` status instead of blocked, and
+        the event is lost rather than deferred for retry. The rotated key is already on
+        disk at that point, so without a retry `slurmdbd` keeps running with the old key.
+        """
+        secret = testing.Secret(label=label, tracked_content=content)
+        slurmctld_integration = testing.Relation(
+            endpoint=SLURMDBD_INTEGRATION_NAME, interface="slurmdbd"
+        )
+        database_integration = testing.Relation(
+            endpoint=DATABASE_INTEGRATION_NAME, interface="mysql_client"
+        )
+
+        with mock_charm(
+            mock_charm.on.secret_changed(secret),
+            testing.State(
+                leader=leader,
+                relations={peer_integration, slurmctld_integration, database_integration},
+                secrets={secret},
+            ),
+        ) as manager:
+            slurmdbd = manager.charm.slurmdbd
+            patch_slurmdbd_active(manager, mocker)
+            mocker.patch.object(
+                slurmdbd.service, "restart", side_effect=SystemdError("restart failed")
+            )
+
+            state = manager.run()
+
+        assert len(state.deferred) == 1
+        assert state.unit_status == ops.BlockedStatus(
+            f"Failed to apply new {name} key. See `juju debug-log` for details"
         )
 
     @pytest.mark.parametrize(
@@ -440,8 +495,7 @@ class TestSlurmdbdCharm:
             ),
         ) as manager:
             slurmdbd = manager.charm.slurmdbd
-            mocker.patch.object(slurmdbd, "is_installed", return_value=True)
-            mocker.patch.object(slurmdbd.service, "is_active", return_value=True)
+            patch_slurmdbd_active(manager, mocker)
             mocker.patch("charm.slurmdbd_ready", return_value=True)
             mock_reconfigure = mocker.patch.object(slurmdbd, "reconfigure")
 
@@ -492,8 +546,7 @@ class TestSlurmdbdCharm:
             ),
         ) as manager:
             slurmdbd = manager.charm.slurmdbd
-            mocker.patch.object(slurmdbd, "is_installed", return_value=True)
-            mocker.patch.object(slurmdbd.service, "is_active", return_value=True)
+            patch_slurmdbd_active(manager, mocker)
             mocker.patch("charm.slurmdbd_ready", return_value=True)
             mocker.patch.object(slurmdbd, "reconfigure")
 
@@ -545,13 +598,12 @@ class TestSlurmdbdCharm:
             ),
         ) as manager:
             slurmdbd = manager.charm.slurmdbd
-            mocker.patch.object(slurmdbd, "is_installed", return_value=True)
-            mocker.patch.object(slurmdbd.service, "is_active", return_value=True)
+            patch_slurmdbd_active(manager, mocker)
             mock_reconfigure = mocker.patch.object(slurmdbd, "reconfigure")
             mock_defer = mocker.patch.object(ops.EventBase, "defer")
 
             if leader:
-                with pytest.raises(UncaughtCharmError) as excinfo:
+                with pytest.raises(testing.errors.UncaughtCharmError) as excinfo:
                     manager.run()
 
                 assert isinstance(excinfo.value.__cause__, ValueError)
@@ -565,44 +617,70 @@ class TestSlurmdbdCharm:
             mock_reconfigure.assert_not_called()
             assert not slurmdbd.storage.path.exists()
 
-    def test_check_slurmdbd_not_installed(self, mock_charm, mocker: MockerFixture, leader) -> None:
-        """Test that the charm blocks when `slurmdbd` is not installed."""
-        with mock_charm(mock_charm.on.update_status(), testing.State(leader=leader)) as manager:
-            mocker.patch.object(manager.charm.slurmdbd, "is_installed", return_value=False)
-
-            state = manager.run()
-
-        if leader:
-            assert state.unit_status == ops.BlockedStatus(
-                "`slurmdbd` is not installed. See `juju debug-log` for details"
-            )
-        else:
-            assert state.unit_status == ops.UnknownStatus()
-
-    def test_check_slurmdbd_waiting(
-        self, mock_charm, mocker: MockerFixture, peer_integration, leader
+    @pytest.mark.parametrize(
+        "installed,joined,active,expected",
+        (
+            pytest.param(
+                False,
+                False,
+                False,
+                ops.BlockedStatus("`slurmdbd` is not installed. See `juju debug-log` for details"),
+                id="not installed",
+            ),
+            pytest.param(
+                True,
+                False,
+                False,
+                ops.BlockedStatus("Waiting for integrations: [`slurmctld`, `database`]"),
+                id="waiting for integrations",
+            ),
+            pytest.param(
+                True,
+                True,
+                False,
+                ops.WaitingStatus("Waiting for `slurmdbd` to start"),
+                id="waiting for service",
+            ),
+            pytest.param(True, True, True, ops.ActiveStatus(), id="active"),
+        ),
+    )
+    def test_update_status(
+        self,
+        mock_charm,
+        mocker: MockerFixture,
+        peer_integration,
+        installed,
+        joined,
+        active,
+        expected,
+        leader,
     ) -> None:
-        """Test that the charm waits when `slurmdbd` is configured but not yet running."""
-        slurmctld_integration = testing.Relation(
-            endpoint=SLURMDBD_INTEGRATION_NAME, interface="slurmdbd"
-        )
-        database_integration = testing.Relation(
-            endpoint=DATABASE_INTEGRATION_NAME, interface="mysql_client"
-        )
+        """Test the status surface evaluated by `check_slurmdbd` after every handler.
+
+        Failure mode: these statuses are what operators diagnose outages from. A
+        wrong branch here misleads operators, e.g. showing "waiting" while the
+        service is actually broken.
+        """
+        integrations = {peer_integration}
+        if joined:
+            integrations |= {
+                testing.Relation(endpoint=SLURMDBD_INTEGRATION_NAME, interface="slurmdbd"),
+                testing.Relation(endpoint=DATABASE_INTEGRATION_NAME, interface="mysql_client"),
+            }
 
         with mock_charm(
             mock_charm.on.update_status(),
-            testing.State(
-                leader=leader,
-                relations={peer_integration, slurmctld_integration, database_integration},
-            ),
+            testing.State(leader=leader, relations=integrations),
         ) as manager:
-            mocker.patch.object(manager.charm.slurmdbd, "is_installed", return_value=True)
-            mocker.patch.object(manager.charm.slurmdbd.service, "is_active", return_value=False)
+            slurmdbd = manager.charm.slurmdbd
+            mocker.patch.object(slurmdbd, "is_installed", return_value=installed)
+            mocker.patch.object(slurmdbd.service, "is_active", return_value=active)
 
             state = manager.run()
 
+        # `_on_update_status` is guarded by `@leader`, so non-leader units never
+        # evaluate the status hook and keep the status Juju assigned them.
         if leader:
-            assert state.unit_status == ops.WaitingStatus("Waiting for `slurmdbd` to start")
+            assert state.unit_status == expected
         else:
             assert state.unit_status == ops.UnknownStatus()

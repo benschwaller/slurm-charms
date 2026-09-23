@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Configure unit tests for the `slurmctld` charm."""
+"""Configure unit tests for the `slurmdbd` charmed operator."""
 
 import pytest
 from charm import SlurmdbdCharm
@@ -29,6 +29,15 @@ def peer_integration() -> testing.PeerRelation:
         endpoint=PEER_INTEGRATION_NAME,
         interface="slurmdbd-peer",
     )
+
+
+def patch_slurmdbd_active(manager: testing.Manager[SlurmdbdCharm], mocker: MockerFixture) -> None:
+    """Patch the `slurmdbd` manager so the unit reports installed and active.
+
+    This is the state the charm must be in before `check_slurmdbd` reports `ActiveStatus`.
+    """
+    mocker.patch.object(manager.charm.slurmdbd, "is_installed", return_value=True)
+    mocker.patch.object(manager.charm.slurmdbd.service, "is_active", return_value=True)
 
 
 @pytest.fixture(scope="function")

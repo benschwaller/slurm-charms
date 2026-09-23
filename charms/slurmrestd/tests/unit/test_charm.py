@@ -24,6 +24,7 @@ from charmed_hpc_libs.errors import SystemdError
 from charmed_hpc_libs.ops.machine.apt import AptOpsManager
 from charmed_hpc_libs.ops.machine.systemd import SystemctlServiceManager
 from charmed_slurm_slurmctld_interface import AUTH_KEY_LABEL
+from conftest import patch_slurmrestd_active
 from constants import SLURMRESTD_INTEGRATION_NAME, SLURMRESTD_PORT
 from ops import testing
 from pytest_mock import MockerFixture
@@ -103,15 +104,11 @@ class TestSlurmrestdCharm:
     @pytest.mark.parametrize(
         "mock_install,install_success",
         (
-            pytest.param(lambda: None, True, id="success"),
-            pytest.param(
-                lambda: (_ for _ in ()).throw(SlurmOpsError("install failed")),
-                False,
-                id="fail",
-            ),
+            pytest.param(None, True, id="success"),
+            pytest.param(SlurmOpsError("install failed"), False, id="fail"),
         ),
     )
-    def test_install(
+    def test_on_install(
         self,
         mock_charm,
         mocker: MockerFixture,
@@ -128,7 +125,7 @@ class TestSlurmrestdCharm:
         """
         with mock_charm(mock_charm.on.install(), testing.State(leader=leader)) as manager:
             slurmrestd = manager.charm.slurmrestd
-            mocker.patch.object(slurmrestd, "install", mock_install)
+            mocker.patch.object(slurmrestd, "install", side_effect=mock_install)
             mocker.patch.object(slurmrestd, "is_installed", return_value=install_success)
             mocker.patch.object(slurmrestd, "version", return_value="24.05.2-1")
             mock_stop = mocker.patch.object(slurmrestd.service, "stop")
@@ -177,11 +174,9 @@ class TestSlurmrestdCharm:
             testing.State(leader=leader, relations={integration}, secrets={auth_key_secret}),
         ) as manager:
             slurmrestd = manager.charm.slurmrestd
-            mocker.patch.object(slurmrestd, "is_installed", return_value=True)
-            mocker.patch.object(slurmrestd.service, "is_active")
+            patch_slurmrestd_active(manager, mocker)
             mock_enable = mocker.patch.object(slurmrestd.service, "enable")
             mock_restart = mocker.patch.object(slurmrestd.service, "restart")
-            mocker.patch("shutil.chown")  # User/group `slurm` doesn't exist on host.
 
             state = manager.run()
 
@@ -225,10 +220,9 @@ class TestSlurmrestdCharm:
         # Patch on the classes rather than on charm instances so the patches apply
         # to both runs (each run constructs a new charm and service manager).
         mocker.patch.object(AptOpsManager, "is_installed", return_value=True)
-        mocker.patch.object(SystemctlServiceManager, "is_active")
+        mocker.patch.object(SystemctlServiceManager, "is_active", return_value=True)
         mocker.patch.object(SystemctlServiceManager, "enable")
         mock_restart = mocker.patch.object(SystemctlServiceManager, "restart")
-        mocker.patch("shutil.chown")  # User/group `slurm` doesn't exist on host.
 
         # Run the same event twice through the harness.
         with mock_charm(mock_charm.on.relation_changed(integration), input_state) as manager:
@@ -262,13 +256,11 @@ class TestSlurmrestdCharm:
             testing.State(leader=leader, relations={integration}, secrets={auth_key_secret}),
         ) as manager:
             slurmrestd = manager.charm.slurmrestd
-            mocker.patch.object(slurmrestd, "is_installed", return_value=True)
-            mocker.patch.object(slurmrestd.service, "is_active")
+            patch_slurmrestd_active(manager, mocker)
             mocker.patch.object(slurmrestd.service, "enable")
             mocker.patch.object(
                 slurmrestd.service, "restart", side_effect=SystemdError("restart failed")
             )
-            mocker.patch("shutil.chown")  # User/group `slurm` doesn't exist on host.
 
             state = manager.run()
 
@@ -364,11 +356,9 @@ class TestSlurmrestdCharm:
             testing.State(leader=leader, relations={integration}, secrets={rotated_secret}),
         ) as manager:
             slurmrestd = manager.charm.slurmrestd
-            mocker.patch.object(slurmrestd, "is_installed", return_value=True)
-            mocker.patch.object(slurmrestd.service, "is_active")
+            patch_slurmrestd_active(manager, mocker)
             mock_restart = mocker.patch.object(slurmrestd.service, "restart")
             mock_reload = mocker.patch.object(slurmrestd.service, "reload")
-            mocker.patch("shutil.chown")  # User/group `slurm` doesn't exist on host.
 
             state = manager.run()
 
@@ -437,8 +427,7 @@ class TestSlurmrestdCharm:
             ),
         ) as manager:
             slurmrestd = manager.charm.slurmrestd
-            mocker.patch.object(slurmrestd, "is_installed", return_value=True)
-            mocker.patch.object(slurmrestd.service, "is_active")
+            patch_slurmrestd_active(manager, mocker)
             mock_restart = mocker.patch.object(slurmrestd.service, "restart")
 
             state = manager.run()

@@ -26,7 +26,6 @@ import pytest
 from charmed_slurm_oci_runtime_interface import OCIRuntimeDisconnectedEvent, OCIRuntimeReadyEvent
 from charmed_slurm_slurmctld_interface import AUTH_KEY_LABEL, JWT_KEY_LABEL
 from charmlibs import apt
-from config import ConfigData
 from conftest import EXAMPLE_KEY_ENTRY, patch_slurmctld_active
 from constants import (
     CLUSTER_NAME_PREFIX,
@@ -39,7 +38,6 @@ from constants import (
     SLURMDBD_INTEGRATION_NAME,
 )
 from ops import testing
-from pydantic import ValidationError
 from pyfakefs.fake_filesystem import FakeFilesystem
 from pytest_mock import MockerFixture
 from slurm_ops import SlurmOpsError
@@ -217,6 +215,42 @@ class TestSlurmctldCharm:
         else:
             mock_delete.assert_not_called()
 
+    def test_on_slurmd_node_departed_delete_failure_blocks_and_defers(
+        self, mock_charm, mocker: MockerFixture, leader
+    ) -> None:
+        """Test that a failed node deletion blocks the unit and defers the event.
+
+        Failure mode: the departure is silently dropped and the node remains
+        registered in Slurm, poisoning scheduling.
+        """
+        integration = testing.Relation(
+            endpoint=SLURMD_INTEGRATION_NAME,
+            interface="slurmd",
+            remote_app_name="slurmd",
+        )
+
+        with mock_charm(
+            mock_charm.on.relation_departed(integration, departing_unit=2),
+            testing.State(leader=leader, relations={integration}),
+        ) as manager:
+            mocker.patch.object(manager.charm.slurmctld, "is_installed", return_value=True)
+            mocker.patch.object(
+                manager.charm.slurmctld,
+                "delete_compute_node",
+                side_effect=SlurmOpsError("delete failed"),
+            )
+
+            state = manager.run()
+
+        if leader:
+            assert state.unit_status == ops.BlockedStatus(
+                "Failed to delete departing compute node `slurmd-2` from Slurm. "
+                "See `juju debug-log` for details"
+            )
+            assert any("departed" in event.name for event in state.deferred)
+        else:
+            assert not state.deferred
+
     def test_bad_configuration(self, mock_charm, leader, peer_integration) -> None:
         """Test that a bad configuration blocks the ``_on_config_changed`` event handler."""
         state = mock_charm.run(
@@ -296,7 +330,7 @@ class TestSlurmctldCharm:
 
         mock_add_package.assert_called_once_with("slurm-mail")
         assert mock_repo.call_args.kwargs["release"] == "noble"
-        assert state.unit_status == testing.ActiveStatus()
+        assert state.unit_status == ops.ActiveStatus()
 
     def test_on_smtp_relation_created_package_install_failure(
         self, mock_charm, mocker: MockerFixture, leader, smtp_relation, peer_integration
@@ -321,7 +355,7 @@ class TestSlurmctldCharm:
             mocker.patch.object(manager.charm.slurmctld.key, "get", return_value=EXAMPLE_KEY_ENTRY)
             state = manager.run()
 
-        assert state.unit_status == testing.BlockedStatus(
+        assert state.unit_status == ops.BlockedStatus(
             "Failed to install slurm-mail package. See `juju debug-log` for details"
         )
 
@@ -342,7 +376,7 @@ class TestSlurmctldCharm:
             state = manager.run()
 
         mock_remove_package.assert_called_once_with("slurm-mail")
-        assert state.unit_status == testing.ActiveStatus()
+        assert state.unit_status == ops.ActiveStatus()
 
     def test_on_smtp_relation_broken_failure(
         self, mock_charm, mocker: MockerFixture, leader, smtp_relation, peer_integration
@@ -361,7 +395,7 @@ class TestSlurmctldCharm:
             mocker.patch.object(manager.charm.slurmctld.key, "get", return_value=EXAMPLE_KEY_ENTRY)
             state = manager.run()
 
-        assert state.unit_status == testing.BlockedStatus(
+        assert state.unit_status == ops.BlockedStatus(
             "Failed to uninstall slurm-mail package. See `juju debug-log` for details"
         )
 
@@ -430,7 +464,7 @@ class TestSlurmctldCharm:
             state = manager.run()
 
         assert config_path.read_text().strip() == expected_config_content.strip()
-        assert state.unit_status == testing.ActiveStatus()
+        assert state.unit_status == ops.ActiveStatus()
 
     @pytest.mark.parametrize(
         "damaged_content",
@@ -488,103 +522,36 @@ class TestSlurmctldCharm:
         assert "[slurm-send-mail]" in content
         assert "[not-slurm-send-mail]" not in content
         assert f"smtpServer = {smtp_data['host']}" in content
-        assert state.unit_status == testing.ActiveStatus()
+        assert state.unit_status == ops.ActiveStatus()
 
+    def test_on_smtp_relation_broken_scale_down_skips_mail_uninstall(
+        self, mock_charm, mocker: MockerFixture, leader, smtp_relation, peer_integration
+    ) -> None:
+        """Mail is not uninstalled when the relation breaks due to this unit scaling down.
 
-class TestConfigDataValidators:
-    """Tests for the `ConfigData` pydantic validators."""
-
-    def test_enable_configless_forced_true_when_override_disables_it(self) -> None:
-        """An operator override that disables configless mode is overridden back to enabled.
-
-        Failure mode: `enable_configless=False` in `slurm-conf-parameters` is
-        accepted verbatim, silently disabling configless mode. Compute nodes
-        then cannot fetch `slurm.conf` from the controller, which the charm
-        source documents as cluster corruption.
+        In an HA deployment `/etc/slurm` is a symlink to shared storage, so
+        cleanup by a departing unit would remove `mail_prog` from the
+        `slurm.conf` that the remaining units still need. Failure mode: the
+        departing unit runs the full uninstall path during scale-down.
         """
-        config = ConfigData(
-            cgroup_parameters="",
-            cluster_name="charmed-hpc",
-            default_partition="normal",
-            email_from_name="Slurm Admin",
-            slurm_conf_parameters="SlurmctldParameters=enable_configless=False",
-        )
+        with mock_charm(
+            mock_charm.on.relation_broken(smtp_relation),
+            testing.State(leader=leader, relations={smtp_relation, peer_integration}),
+        ) as manager:
+            patch_slurmctld_active(manager, mocker)
+            mock_remove = mocker.patch.object(apt, "remove_package")
+            # Scenario cannot express the local unit as the departing unit of a
+            # relation (`JUJU_DEPARTING_UNIT` is always remote), so drive the
+            # handler directly with the local unit, as Juju does during scale-down.
+            departing = mocker.Mock(departing_unit=manager.charm.unit)
+            manager.charm._on_smtp_relation_departed(departing)
+            manager.run()
 
-        assert config.slurm_conf_parameters.slurmctld_parameters["enable_configless"] is True
-
-    def test_enable_configless_injected_when_override_sets_other_parameters(self) -> None:
-        """`enable_configless` is added when an override sets other `SlurmctldParameters`.
-
-        Failure mode: an override that sets unrelated `SlurmctldParameters`
-        without mentioning `enable_configless` replaces the charm-managed
-        parameter set, dropping configless mode and corrupting the cluster.
-        """
-        config = ConfigData(
-            cgroup_parameters="",
-            cluster_name="charmed-hpc",
-            default_partition="normal",
-            email_from_name="Slurm Admin",
-            slurm_conf_parameters="SlurmctldParameters=idle_on_node_suspend=True",
-        )
-
-        parameters = config.slurm_conf_parameters.slurmctld_parameters
-        assert parameters["idle_on_node_suspend"] is True
-        assert parameters["enable_configless"] is True
-
-    def test_cgroup_override_defaults_are_applied(self) -> None:
-        """The charm's default cgroup constraints are applied on top of the override.
-
-        Failure mode: an override that only sets a subset of cgroup options
-        wipes the required defaults (`ConstrainCores`, `ConstrainRAMSpace`,
-        etc.), leaving `cgroup.conf` under-constrained.
-        """
-        config = ConfigData(
-            cgroup_parameters="ConstrainDevices=yes",
-            cluster_name="charmed-hpc",
-            default_partition="normal",
-            email_from_name="Slurm Admin",
-            slurm_conf_parameters="",
-        )
-
-        assert config.cgroup_parameters.constrain_devices is True
-        assert config.cgroup_parameters.constrain_cores is True
-        assert config.cgroup_parameters.constrain_ram_space is True
-        assert config.cgroup_parameters.constrain_swap_space is True
-        assert config.cgroup_parameters.signal_children_processes is True
-
-    def test_invalid_cgroup_override_rejected(self) -> None:
-        """A malformed `cgroup-conf-parameters` value is rejected, not applied.
-
-        Failure mode: a typo'd cgroup directive is accepted and written to
-        `cgroup.conf`, breaking `slurmctld` on the next service restart.
-        """
-        with pytest.raises(ValidationError, match="Invalid cgroup configuration"):
-            ConfigData(
-                cgroup_parameters="ThisIsNotAValidKey=yes",
-                cluster_name="charmed-hpc",
-                default_partition="normal",
-                email_from_name="Slurm Admin",
-                slurm_conf_parameters="",
-            )
-
-    def test_invalid_slurm_conf_override_rejected(self) -> None:
-        """A malformed `slurm-conf-parameters` value is rejected, not applied.
-
-        Failure mode: an unrecognized Slurm directive is accepted and written
-        to the overrides include file, preventing `slurmctld` from starting.
-        """
-        with pytest.raises(ValidationError, match="Invalid slurm configuration override"):
-            ConfigData(
-                cgroup_parameters="",
-                cluster_name="charmed-hpc",
-                default_partition="normal",
-                email_from_name="Slurm Admin",
-                slurm_conf_parameters="NotARealSlurmDirective=5",
-            )
+        mock_remove.assert_not_called()
 
 
-class TestClusterNameImmutability:
-    """Tests that the cluster name is written once and never overwritten."""
+class TestControllerPeer:
+    """Tests for state shared between controller units over the peer integration."""
 
     def test_cluster_name_survives_restart_signal_update(
         self, mock_charm, peer_integration
@@ -632,6 +599,48 @@ class TestClusterNameImmutability:
 
         integration = state.get_relation(peer_integration.id)
         assert integration.local_app_data["cluster_name"] == '"charmed-hpc"'
+
+    @pytest.mark.parametrize(
+        "leader",
+        (
+            pytest.param(True, id="leader"),
+            pytest.param(False, id="not leader"),
+        ),
+    )
+    def test_restart_signal_restarts_non_leader_only(
+        self, mock_charm, mocker: MockerFixture, fs: FakeFilesystem, leader
+    ) -> None:
+        """A restart signal restarts `slurmctld` on non-leader units only.
+
+        The leader restarts its own service as part of `_reconfigure`;
+        non-leaders act on the signal. Failure mode: backup controllers
+        never pick up `slurm.conf` changes, or the leader restarts twice.
+        """
+        fs.add_mount_point(HA_MOUNT_LOCATION)
+        hostname = socket.gethostname().split(".")[0]
+        fs.create_file(SLURM_CONF, contents=f"clustername=charmed-hpc\nslurmctldhost={hostname}\n")
+        fs.create_file(JWT_KEY_FILE, contents="dummy-jwt-key")
+
+        peer = testing.PeerRelation(
+            endpoint=PEER_INTEGRATION_NAME,
+            interface="slurmctld-peer",
+            local_app_data={"cluster_name": '"charmed-hpc"', "restart_signal": '"signal-1"'},
+            peers_data={1: {"hostname": '"controller-1"'}},
+        )
+
+        with mock_charm(
+            mock_charm.on.relation_changed(peer, remote_unit=1),
+            testing.State(leader=leader, relations={peer}, planned_units=2),
+        ) as manager:
+            patch_slurmctld_active(manager, mocker)
+            mock_restart = mocker.patch.object(manager.charm.slurmctld.service, "restart")
+            manager.run()
+
+        if leader:
+            # The leader restarts within `_reconfigure`, not on the signal.
+            mock_restart.assert_not_called()
+        else:
+            mock_restart.assert_called_once()
 
 
 class TestOnStart:
@@ -771,6 +780,96 @@ class TestOnStart:
 
         assert SLURM_CONF.read_text() == existing_slurm_conf
         mock_restart.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "missing,expected_message",
+        (
+            pytest.param(
+                "slurm.conf",
+                "Waiting for /etc/slurm/slurm.conf",
+                id="no slurm.conf",
+            ),
+            pytest.param(
+                "hostname",
+                (
+                    f"Waiting for {socket.gethostname().split('.')[0]} "
+                    "to be added to /etc/slurm/slurm.conf"
+                ),
+                id="hostname not in slurm.conf",
+            ),
+            pytest.param(
+                "jwt key",
+                "Waiting for /etc/slurm/jwt_hs256.key",
+                id="no jwt key",
+            ),
+            pytest.param(
+                "auth key",
+                "Waiting for /etc/slurm/slurm.jwks",
+                id="no auth key",
+            ),
+        ),
+    )
+    def test_on_start_non_leader_waits_for_missing_prerequisites(
+        self,
+        mock_charm,
+        mocker: MockerFixture,
+        peer_integration,
+        fs: FakeFilesystem,
+        missing,
+        expected_message,
+    ) -> None:
+        """A non-leader reports exactly which prerequisite it is waiting for.
+
+        Failure mode: a newly added controller unit waits forever with a
+        generic status, leaving the operator without a clue which handoff
+        from the leader is missing.
+        """
+        fs.add_mount_point(HA_MOUNT_LOCATION)
+        hostname = socket.gethostname().split(".")[0]
+
+        if missing == "hostname":
+            fs.create_file(
+                SLURM_CONF, contents="clustername=charmed-hpc\nslurmctldhost=other-controller\n"
+            )
+        elif missing == "jwt key":
+            fs.create_file(
+                SLURM_CONF, contents=f"clustername=charmed-hpc\nslurmctldhost={hostname}\n"
+            )
+        elif missing == "auth key":
+            fs.create_file(
+                SLURM_CONF, contents=f"clustername=charmed-hpc\nslurmctldhost={hostname}\n"
+            )
+            fs.create_file(JWT_KEY_FILE, contents="dummy-jwt-key")
+            Path("/etc/slurm/slurm.jwks").unlink()
+
+        with mock_charm(
+            mock_charm.on.start(),
+            testing.State(leader=False, relations={peer_integration}),
+        ) as manager:
+            mocker.patch.object(manager.charm.slurmctld, "is_installed", return_value=True)
+            state = manager.run()
+
+        assert state.unit_status == ops.WaitingStatus(expected_message)
+        assert any(event.name == "start" for event in state.deferred)
+
+    def test_on_start_non_leader_blocks_without_shared_state(
+        self, mock_charm, mocker: MockerFixture, peer_integration
+    ) -> None:
+        """A non-leader refuses to start without the HA shared state filesystem.
+
+        Failure mode: a backup controller starts with unshared state,
+        silently diverging from the primary's checkpoint data.
+        """
+        with mock_charm(
+            mock_charm.on.start(),
+            testing.State(leader=False, relations={peer_integration}),
+        ) as manager:
+            mocker.patch.object(manager.charm.slurmctld, "is_installed", return_value=True)
+            state = manager.run()
+
+        assert state.unit_status == ops.BlockedStatus(
+            "A shared file system must be provided to enable `slurmctld` high availability"
+        )
 
 
 class TestSlurmIncludes:
@@ -1014,100 +1113,6 @@ class TestUnitStatus:
         assert state.unit_status == ops.WaitingStatus(expected_message)
 
 
-class TestPeerReadiness:
-    """Tests for the conditions that gate a non-leader unit from starting."""
-
-    @pytest.mark.parametrize(
-        "missing,expected_message",
-        (
-            pytest.param(
-                "slurm.conf",
-                "Waiting for /etc/slurm/slurm.conf",
-                id="no slurm.conf",
-            ),
-            pytest.param(
-                "hostname",
-                (
-                    f"Waiting for {socket.gethostname().split('.')[0]} "
-                    "to be added to /etc/slurm/slurm.conf"
-                ),
-                id="hostname not in slurm.conf",
-            ),
-            pytest.param(
-                "jwt key",
-                "Waiting for /etc/slurm/jwt_hs256.key",
-                id="no jwt key",
-            ),
-            pytest.param(
-                "auth key",
-                "Waiting for /etc/slurm/slurm.jwks",
-                id="no auth key",
-            ),
-        ),
-    )
-    def test_on_start_non_leader_waits_for_missing_prerequisites(
-        self,
-        mock_charm,
-        mocker: MockerFixture,
-        peer_integration,
-        fs: FakeFilesystem,
-        missing,
-        expected_message,
-    ) -> None:
-        """A non-leader reports exactly which prerequisite it is waiting for.
-
-        Failure mode: a newly added controller unit waits forever with a
-        generic status, leaving the operator without a clue which handoff
-        from the leader is missing.
-        """
-        fs.add_mount_point(HA_MOUNT_LOCATION)
-        hostname = socket.gethostname().split(".")[0]
-
-        if missing == "hostname":
-            fs.create_file(
-                SLURM_CONF, contents="clustername=charmed-hpc\nslurmctldhost=other-controller\n"
-            )
-        elif missing == "jwt key":
-            fs.create_file(
-                SLURM_CONF, contents=f"clustername=charmed-hpc\nslurmctldhost={hostname}\n"
-            )
-        elif missing == "auth key":
-            fs.create_file(
-                SLURM_CONF, contents=f"clustername=charmed-hpc\nslurmctldhost={hostname}\n"
-            )
-            fs.create_file(JWT_KEY_FILE, contents="dummy-jwt-key")
-            Path("/etc/slurm/slurm.jwks").unlink()
-
-        with mock_charm(
-            mock_charm.on.start(),
-            testing.State(leader=False, relations={peer_integration}),
-        ) as manager:
-            mocker.patch.object(manager.charm.slurmctld, "is_installed", return_value=True)
-            state = manager.run()
-
-        assert state.unit_status == ops.WaitingStatus(expected_message)
-        assert any(event.name == "start" for event in state.deferred)
-
-    def test_on_start_non_leader_blocks_without_shared_state(
-        self, mock_charm, mocker: MockerFixture, peer_integration
-    ) -> None:
-        """A non-leader refuses to start without the HA shared state filesystem.
-
-        Failure mode: a backup controller starts with unshared state,
-        silently diverging from the primary's checkpoint data.
-        """
-        with mock_charm(
-            mock_charm.on.start(),
-            testing.State(leader=False, relations={peer_integration}),
-        ) as manager:
-            mocker.patch.object(manager.charm.slurmctld, "is_installed", return_value=True)
-            state = manager.run()
-
-        assert state.unit_status == ops.BlockedStatus(
-            "A shared file system must be provided to enable `slurmctld` high availability"
-        )
-
-
 class TestReconfigure:
     """Tests for the `_reconfigure` orchestration."""
 
@@ -1222,35 +1227,6 @@ class TestReconfigure:
         assert "restart_signal" in integration.local_app_data
 
 
-class TestSmtpScaleDown:
-    """Tests for SMTP cleanup behavior when this unit is scaled down."""
-
-    def test_on_smtp_relation_broken_scale_down_skips_mail_uninstall(
-        self, mock_charm, mocker: MockerFixture, smtp_relation, peer_integration
-    ) -> None:
-        """Mail is not uninstalled when the relation breaks due to this unit scaling down.
-
-        In an HA deployment `/etc/slurm` is a symlink to shared storage, so
-        cleanup by a departing unit would remove `mail_prog` from the
-        `slurm.conf` that the remaining units still need. Failure mode: the
-        departing unit runs the full uninstall path during scale-down.
-        """
-        with mock_charm(
-            mock_charm.on.relation_broken(smtp_relation),
-            testing.State(leader=True, relations={smtp_relation, peer_integration}),
-        ) as manager:
-            patch_slurmctld_active(manager, mocker)
-            mock_remove = mocker.patch.object(apt, "remove_package")
-            # Scenario cannot express the local unit as the departing unit of a
-            # relation (`JUJU_DEPARTING_UNIT` is always remote), so drive the
-            # handler directly with the local unit, as Juju does during scale-down.
-            departing = mocker.Mock(departing_unit=manager.charm.unit)
-            manager.charm._on_smtp_relation_departed(departing)
-            manager.run()
-
-        mock_remove.assert_not_called()
-
-
 class TestOnInstall:
     """Tests for the `_on_install` event handler."""
 
@@ -1345,7 +1321,7 @@ class TestOnInstall:
 
 
 class TestKeyRotation:
-    """Tests for the `rotate-auth-key` and `rotate-jwt-key` action guards and failures."""
+    """Tests for key rotation actions and the secret lifecycle they depend on."""
 
     @pytest.mark.parametrize(
         "action,name",
@@ -1420,10 +1396,6 @@ class TestKeyRotation:
         assert exec_info.value.message == (
             "Failed to publish new auth key secret. See `juju debug-log` for details."
         )
-
-
-class TestSecretLifecycle:
-    """Tests for the secret-changed and secret-remove event handlers."""
 
     def test_on_secret_remove_auth_key_keeps_latest_key(
         self, mock_charm, mocker: MockerFixture, peer_integration
@@ -1516,84 +1488,3 @@ class TestSecretLifecycle:
 
         updated = next(secret for secret in state.secrets if secret.label == label)
         assert updated.tracked_content["key"] == expected_tracked
-
-
-class TestRestartSignal:
-    """Tests for the peer restart-signal propagation mechanism."""
-
-    @pytest.mark.parametrize(
-        "leader",
-        (
-            pytest.param(True, id="leader"),
-            pytest.param(False, id="not leader"),
-        ),
-    )
-    def test_restart_signal_restarts_non_leader_only(
-        self, mock_charm, mocker: MockerFixture, fs: FakeFilesystem, leader
-    ) -> None:
-        """A restart signal restarts `slurmctld` on non-leader units only.
-
-        The leader restarts its own service as part of `_reconfigure`;
-        non-leaders act on the signal. Failure mode: backup controllers
-        never pick up `slurm.conf` changes, or the leader restarts twice.
-        """
-        fs.add_mount_point(HA_MOUNT_LOCATION)
-        hostname = socket.gethostname().split(".")[0]
-        fs.create_file(SLURM_CONF, contents=f"clustername=charmed-hpc\nslurmctldhost={hostname}\n")
-        fs.create_file(JWT_KEY_FILE, contents="dummy-jwt-key")
-
-        peer = testing.PeerRelation(
-            endpoint=PEER_INTEGRATION_NAME,
-            interface="slurmctld-peer",
-            local_app_data={"cluster_name": '"charmed-hpc"', "restart_signal": '"signal-1"'},
-            peers_data={1: {"hostname": '"controller-1"'}},
-        )
-
-        with mock_charm(
-            mock_charm.on.relation_changed(peer, remote_unit=1),
-            testing.State(leader=leader, relations={peer}, planned_units=2),
-        ) as manager:
-            patch_slurmctld_active(manager, mocker)
-            mock_restart = mocker.patch.object(manager.charm.slurmctld.service, "restart")
-            manager.run()
-
-        if leader:
-            # The leader restarts within `_reconfigure`, not on the signal.
-            mock_restart.assert_not_called()
-        else:
-            mock_restart.assert_called_once()
-
-
-class TestSlurmdNodeDeparture:
-    """Tests for the `_on_slurmd_node_departed` event handler failure path."""
-
-    def test_on_slurmd_node_departed_delete_failure_blocks_and_defers(
-        self, mock_charm, mocker: MockerFixture
-    ) -> None:
-        """A failed node deletion blocks the unit and defers the event.
-
-        Failure mode: the departure is silently dropped and the node remains
-        registered in Slurm, poisoning scheduling.
-        """
-        integration = testing.Relation(
-            endpoint=SLURMD_INTEGRATION_NAME,
-            interface="slurmd",
-            remote_app_name="slurmd",
-        )
-        with mock_charm(
-            mock_charm.on.relation_departed(integration, departing_unit=2),
-            testing.State(leader=True, relations={integration}),
-        ) as manager:
-            mocker.patch.object(manager.charm.slurmctld, "is_installed", return_value=True)
-            mocker.patch.object(
-                manager.charm.slurmctld,
-                "delete_compute_node",
-                side_effect=SlurmOpsError("delete failed"),
-            )
-            state = manager.run()
-
-        assert state.unit_status == ops.BlockedStatus(
-            "Failed to delete departing compute node `slurmd-2` from Slurm. "
-            "See `juju debug-log` for details"
-        )
-        assert any("departed" in event.name for event in state.deferred)

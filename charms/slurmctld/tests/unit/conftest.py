@@ -14,7 +14,6 @@
 
 """Configure unit tests for the `slurmctld` charmed operator."""
 
-from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import pytest
@@ -23,9 +22,6 @@ from constants import PEER_INTEGRATION_NAME
 from ops import testing
 from pyfakefs.fake_filesystem import FakeFilesystem
 from pytest_mock import MockerFixture
-
-if TYPE_CHECKING:
-    from scenario import Manager
 
 # A valid `slurm.jwks` key entry: exactly one key, as expected after key rotation completes.
 EXAMPLE_KEY_ENTRY = {"keys": [{"alg": "HS256", "kty": "oct", "kid": "0", "k": "xyz123=="}]}
@@ -41,7 +37,9 @@ def peer_integration() -> testing.PeerRelation:
     )
 
 
-def patch_slurmctld_active(manager: "Manager[SlurmctldCharm]", mocker: MockerFixture) -> None:
+def patch_slurmctld_active(
+    manager: testing.Manager[SlurmctldCharm], mocker: MockerFixture
+) -> None:
     """Patch the `slurmctld` manager so the unit reports installed, active, and key-ready.
 
     This is the state the charm must be in before `check_slurmctld` reports `ActiveStatus`.

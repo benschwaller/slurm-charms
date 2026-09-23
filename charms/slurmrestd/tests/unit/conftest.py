@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Configure unit tests for the `slurmctld` charm."""
+"""Configure unit tests for the `slurmrestd` charm."""
 
 import pytest
 from charm import SlurmrestdCharm

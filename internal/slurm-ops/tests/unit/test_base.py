@@ -231,26 +231,16 @@ class TestSlurmManager:
                 assert mock_run.call_args[0][0] == ["systemctl", "daemon-reload"]
 
     def test_reconfigure(self, mock_manager, mock_run, mocker: MockerFixture, fs: FakeFilesystem) -> None:
-        """Test the `reconfigure` method.
-
-        Verify that the systemd start-rate-limit counter is reset before the
-        charm-initiated restart, so repeated configuration changes cannot trip
-        `StartLimitBurst` and cause `start-limit-hit`.
-        """
+        """Test the `reconfigure` method."""
         manager, service = mock_manager
 
-        # `slurmctld`'s `reconfigure` defaults to the `scontrol reconfigure` path;
-        # `restart=True` routes it to the base implementation under test.
         kwargs = {"restart": True} if service == "slurmctld" else {}
         if service == "slurmdbd":
-            # `slurmdbd`'s `reconfigure` merges its config file before restarting.
             fs.create_dir("/etc/slurm")
             mocker.patch("shutil.chown")
 
         manager.reconfigure(**kwargs)
 
-        # The three systemctl invocations must occur in this order:
-        # `reset-failed` (to clear the start-limit counter), `enable`, then `restart`.
         systemctl_calls = [
             call[0][0] for call in mock_run.call_args_list if call[0][0][:1] == ["systemctl"]
         ]
@@ -266,7 +256,6 @@ class TestSlurmManager:
         """Test that a `reset-failed` error is wrapped in `SlurmOpsError`."""
         manager, service = mock_manager
 
-        # The first systemctl call in `reconfigure` is `reset-failed`.
         mock_run.side_effect = subprocess.CalledProcessError(
             cmd=["systemctl", "reset-failed", service],
             returncode=1,
@@ -276,7 +265,6 @@ class TestSlurmManager:
 
         kwargs = {"restart": True} if service == "slurmctld" else {}
         if service == "slurmdbd":
-            # `slurmdbd` merges its config file before restarting.
             fs.create_dir("/etc/slurm")
             fs.create_file("/etc/slurm/slurmdbd.conf")
             mocker.patch("shutil.chown")
@@ -294,7 +282,6 @@ class TestSlurmManager:
         """Test that a restart error is wrapped in `SlurmOpsError`."""
         manager, service = mock_manager
 
-        # Allow `reset-failed` and `enable` to succeed, then fail the restart.
         mock_run.side_effect = [
             subprocess.CompletedProcess([], returncode=0),
             subprocess.CompletedProcess([], returncode=0),
@@ -308,7 +295,6 @@ class TestSlurmManager:
 
         kwargs = {"restart": True} if service == "slurmctld" else {}
         if service == "slurmdbd":
-            # `slurmdbd` merges its config file before restarting.
             fs.create_dir("/etc/slurm")
             fs.create_file("/etc/slurm/slurmdbd.conf")
             mocker.patch("shutil.chown")

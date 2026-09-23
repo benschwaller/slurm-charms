@@ -23,11 +23,7 @@ dev = [
     "rtoml ~= 0.13",
 
     # Development
-<<<<<<< HEAD
     "charmed-hpc-libs[all] ~= 0.7.1",
-=======
-    "charmed-hpc-libs[all] >= 0.7.1",
->>>>>>> 7e571d6 (chore(deps): bump `charmed-hpc-libs` to 0.7.1)
     "slurm-ops",
     "charmed-slurm-slurmctld-interface",
     "charmed-slurm-oci-runtime-interface",

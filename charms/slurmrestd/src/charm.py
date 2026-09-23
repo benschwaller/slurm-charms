@@ -19,7 +19,6 @@
 import logging
 
 import ops
-from charmed_hpc_libs.errors import SystemdError
 from charmed_hpc_libs.ops import StopCharm, block_unless, refresh, wait_unless
 from charmed_slurm_slurmrestd_interface import (
     AUTH_KEY_LABEL,
@@ -101,7 +100,7 @@ class SlurmrestdCharm(ops.CharmBase):
                 self.slurmrestd.config.includes[name].dump(config)
             self.slurmrestd.service.enable()
             self.slurmrestd.service.restart()
-        except (SlurmOpsError, SystemdError) as e:
+        except SlurmOpsError as e:
             logger.error(e.message)
             event.defer()
             raise StopCharm(
@@ -114,7 +113,7 @@ class SlurmrestdCharm(ops.CharmBase):
         try:
             self.slurmrestd.service.disable()
             self.slurmrestd.service.stop()
-        except (SlurmOpsError, SystemdError) as e:
+        except SlurmOpsError as e:
             logger.error(e.message)
             event.defer()
             raise StopCharm(

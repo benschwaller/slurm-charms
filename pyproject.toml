@@ -61,7 +61,7 @@ dev = [
 =======
     "jubilant ~= 1.0",
     "pytest ~= 9.0",
-    "pytest-jubilant-bdd",
+    "pytest-jubilant-bdd ~= 0.6.0",
     "pytest-order ~= 1.4",
 >>>>>>> f7a3bda (feat: bdd migration (minus HA and influx) done and repo moved over to only using those tests)
 

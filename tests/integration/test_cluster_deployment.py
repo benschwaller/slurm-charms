@@ -12,16 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""BDD step definitions for Slurm cluster deployment.
-
-Scenario ordering is preserved with ``@pytest.mark.order`` so the cluster
-deploy scenario runs before every other feature, matching the legacy suite.
-"""
+"""BDD step definitions for Slurm cluster deployment."""
 
 import logging
 
 import pytest
-from bdd_utils import local_charm_path
+from utils import local_charm_path
 from constants import (
     DEFAULT_SLURM_CHARM_CHANNEL,
     MYSQL_APP_NAME,

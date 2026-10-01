@@ -12,19 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Shared helpers for the Slurm BDD step definitions.
-
-This module is intentionally not a ``test_*`` file so pytest does not collect
-it. It provides:
-
-- ``scontrol_show_node`` / ``node_name``: helpers for parsing ``scontrol``
-  JSON output.
-- ``MailHandler``: the SMTP capture handler used by the mail feature.
-
-The ``pytest-jubilant-bdd`` plugin provides the session-scoped ``context``
-fixture; no ``juju`` fixture is defined here. Pytest fixtures
-(``scenario_state``, ``smtp_handler``) live in ``conftest.py``.
-"""
+"""Shared helpers for the Slurm BDD step definitions."""
 
 from __future__ import annotations
 

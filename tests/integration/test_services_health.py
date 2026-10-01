@@ -36,12 +36,16 @@ def slurm_services_active(context: Context) -> None:
     for app, service in SLURM_APPS.items():
         for unit in status.apps[app].units:
             result = juju.exec(f"systemctl is-active {service}", unit=unit)
-            assert (
-                result.stdout.strip() == "active"
-            ), f"service '{service}' not active on unit '{unit}': {result.stdout.strip()}"
+            assert result.stdout.strip() == "active", (
+                f"service '{service}' not active on unit '{unit}': {result.stdout.strip()}"
+            )
 
 
-@then(parsers.parse("the slurmctld metrics endpoint on unit '{unit}' returns http status '{status_code}'"))
+@then(
+    parsers.parse(
+        "the slurmctld metrics endpoint on unit '{unit}' returns http status '{status_code}'"
+    )
+)
 def metrics_endpoint(context: Context, unit: str, status_code: str) -> None:
     """Curl the prometheus-slurm-exporter metrics endpoint and check the HTTP code."""
     juju = context.get_juju()
@@ -49,9 +53,9 @@ def metrics_endpoint(context: Context, unit: str, status_code: str) -> None:
         "curl --silent --output /dev/null --write-out '%{http_code}\\n' localhost:6817/metrics",
         unit=unit,
     )
-    assert (
-        result.stdout.strip() == status_code
-    ), f"metrics endpoint returned '{result.stdout.strip()}', expected '{status_code}'"
+    assert result.stdout.strip() == status_code, (
+        f"metrics endpoint returned '{result.stdout.strip()}', expected '{status_code}'"
+    )
 
 
 @then(parsers.parse("unit '{unit}' is listening on TCP port '{port}'"))

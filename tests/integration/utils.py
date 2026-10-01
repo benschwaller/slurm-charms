@@ -99,9 +99,7 @@ def interface_ipv4(interface: str) -> str:
     """Get the IPv4 address of ``interface``."""
     interfaces = net_if_addrs()
     if interface not in interfaces:
-        raise ValueError(
-            f"Invalid interface: '{interface}'. " f"Available: {list(interfaces.keys())}"
-        )
+        raise ValueError(f"Invalid interface: '{interface}'. Available: {list(interfaces.keys())}")
     for addr in interfaces[interface]:
         if addr.family == socket.AF_INET:
             return addr.address

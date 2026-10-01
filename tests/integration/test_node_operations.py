@@ -17,9 +17,9 @@
 import logging
 
 import pytest
-from utils import node_name, scontrol_show_node
 from pytest_bdd import parsers, scenarios, then
 from pytest_jubilant_bdd import Context
+from utils import node_name, scontrol_show_node
 
 logger = logging.getLogger(__name__)
 
@@ -63,12 +63,12 @@ def node_state_and_reason(context: Context, unit: str, state: str, reason: str) 
     name = node_name(unit)
 
     def check(data):
-        assert (
-            state in data["nodes"][0]["state"]
-        ), f"expected state containing '{state}', got '{data['nodes'][0]['state']}'"
-        assert (
-            data["nodes"][0]["reason"] == reason
-        ), f"expected reason '{reason}', got '{data['nodes'][0]['reason']}'"
+        assert state in data["nodes"][0]["state"], (
+            f"expected state containing '{state}', got '{data['nodes'][0]['state']}'"
+        )
+        assert data["nodes"][0]["reason"] == reason, (
+            f"expected reason '{reason}', got '{data['nodes'][0]['reason']}'"
+        )
 
     _wait_for_node(context, unit, name, check)
 
@@ -81,9 +81,9 @@ def node_weight_state_and_reason(
     name = node_name(unit)
 
     def check(data):
-        assert data["nodes"][0]["weight"] == int(
-            weight
-        ), f"expected weight {weight}, got '{data['nodes'][0]['weight']}'"
+        assert data["nodes"][0]["weight"] == int(weight), (
+            f"expected weight {weight}, got '{data['nodes'][0]['weight']}'"
+        )
         assert state in data["nodes"][0]["state"]
         assert data["nodes"][0]["reason"] == reason
 

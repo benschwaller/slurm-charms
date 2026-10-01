@@ -18,10 +18,10 @@ import logging
 
 import jubilant
 import pytest
-from utils import MailHandler, interface_ipv4
 from constants import SLURMD_APP_NAME, SMTP_INTEGRATOR_APP_NAME
 from pytest_bdd import given, parsers, scenarios, then, when
 from pytest_jubilant_bdd import Context
+from utils import MailHandler, interface_ipv4
 
 logger = logging.getLogger(__name__)
 
@@ -49,33 +49,21 @@ def deploy_smtp_integrator(context: Context, port: str) -> None:
     )
 
 
-@when(parsers.parse("I remove application '{app}'"))
-def remove_application(context: Context, app: str) -> None:
-    """Remove an application and wait for it to disappear from the model."""
-    juju = context.get_juju()
-    juju.remove_application(app)
-    juju.wait(lambda status: app not in status.apps)
+# Commented out pending the upstream registration of ``remove_app`` as a
+# ``when`` step (currently given-only in pytest-jubilant-bdd 0.17.0). Once
+# available, the plan's "When I remove app 'smtp-integrator'" binds to the
+# built-in step and this handler can be deleted.
+# @when(parsers.parse("I remove app '{app}'"))
+# def remove_application(context: Context, app: str) -> None:
+#     """Remove an application and wait for it to disappear from the model."""
+#     juju = context.get_juju()
+#     juju.remove_application(app)
+#     juju.wait(lambda status: app not in status.apps)
 
 
 # ---------------------------------------------------------------------------
 # Slurm job submission with mail notifications
 # ---------------------------------------------------------------------------
-
-
-@when(
-    parsers.parse(
-        "I run a slurm srun job on unit '{unit}' with mail user '{to_address}' "
-        "and mail type '{mail_type}'"
-    )
-)
-def run_slurm_job_mail(context: Context, unit: str, to_address: str, mail_type: str) -> None:
-    """Run a successful srun job that triggers a Slurm mail notification."""
-    juju = context.get_juju()
-    juju.exec(
-        f"srun --time=1 --partition {SLURMD_APP_NAME} "
-        f"--mail-user={to_address} --mail-type={mail_type} sleep 1",
-        unit=unit,
-    )
 
 
 @when(

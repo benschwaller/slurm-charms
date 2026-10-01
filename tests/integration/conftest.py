@@ -21,10 +21,10 @@ from collections.abc import Iterator
 
 import pytest
 from aiosmtpd.controller import Controller
-from utils import MailHandler, interface_ipv4
 from constants import NETWORK_INTERFACE, SLURMD_APP_NAME, SMTP_SERVER_PORT
-from pytest_bdd import parsers, then, when
+from pytest_bdd import parsers, then
 from pytest_jubilant_bdd import Context
+from utils import MailHandler, interface_ipv4
 
 logger = logging.getLogger(__name__)
 
@@ -33,12 +33,6 @@ logger = logging.getLogger(__name__)
 def base(request: pytest.FixtureRequest) -> str:
     """Get the base to deploy the Slurm charms on."""
     return request.config.getoption("--charm-base")
-
-
-@pytest.fixture
-def scenario_state() -> dict:
-    """Per-scenario mutable state shared between Given/When/Then steps."""
-    return {}
 
 
 @pytest.fixture(scope="module")
@@ -54,21 +48,10 @@ def smtp_handler() -> Iterator[MailHandler]:
         controller.stop()
 
 
-@when(parsers.parse("I reset the slurmd node configuration on unit '{unit}'"))
-def reset_node_config(context: Context, unit: str) -> None:
-    """Reset the slurmd node configuration via the ``set-node-config`` action.
-
-    Custom step that passes ``reset`` as a proper Python ``bool``. The built-in
-    ``run_action`` step uses ``make_dict`` which autocasts via
-    ``ast.literal_eval`` and cannot parse lowercase ``true`` into a Python bool,
-    so the slurmd action rejects it.
-    """
-    juju = context.get_juju()
-    juju.run(unit, "set-node-config", params={"reset": True})
-
-
 @then(
-    parsers.parse("a slurm srun job submitted from unit '{login_unit}' runs on unit '{compute_unit}'")
+    parsers.parse(
+        "a slurm srun job submitted from unit '{login_unit}' runs on unit '{compute_unit}'"
+    )
 )
 def job_submission(context: Context, login_unit: str, compute_unit: str) -> None:
     """Submit a job from the login node and verify it runs on the compute node."""

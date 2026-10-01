@@ -94,7 +94,7 @@ scenarios:
     Set node config action updates node weight
     When I run action 'set-node-config' on unit 'compute/0' with parameters 'parameters=weight=100'
     Then the slurmd node for unit 'compute/0' has weight '100' and state containing 'DOWN' and reason "'n/a'"
-    When I reset the slurmd node configuration on unit 'compute/0'
+    When I run action 'set-node-config' on unit 'compute/0' with parameters 'reset=true'
     Then the slurmd node for unit 'compute/0' has weight '1' and state containing 'DOWN' and reason "'n/a'"
   - |-
     Set node state action updates node state and reason
@@ -154,14 +154,10 @@ scenarios:
   - |-
     GPU job submission with mock GPU
     Given I set up a mock NVIDIA GPU device on unit 'compute/0'
+    And I set 'cgroup-parameters' for app 'controller' to 'constraindevices=no'
     When I run action 'set-node-config' on unit 'compute/0' with parameters 'parameters=gres=gpu:mock_gpu:1'
-    Given I set 'cgroup-parameters' for app 'controller' to 'constraindevices=no'
-    When I re-register the slurmd node 'compute-0' with the slurm controller on unit 'login/0'
+    And I re-register the slurmd node 'compute-0' with the slurm controller on unit 'login/0'
     Then a slurm srun GPU job requesting 1 GPU submitted from unit 'login/0' runs on unit 'compute/0'
-    When I clean up the mock NVIDIA GPU device on unit 'compute/0'
-    And I reset the slurmd node configuration on unit 'compute/0'
-    Given I reset 'cgroup-parameters' for app 'controller'
-    When I re-register the slurmd node 'compute-0' with the slurm controller on unit 'login/0'
 
 ---
 feature: "Slurm mail notifications"
@@ -180,7 +176,7 @@ scenarios:
     And the workload status for app 'smtp-integrator' is 'active'
   - |-
     Notification email when a job ends
-    When I run a slurm srun job on unit 'login/0' with mail user 'user@localhost' and mail type 'END'
+    When I execute 'srun --time=1 --partition compute --mail-user=user@localhost --mail-type=END sleep 1' on unit 'login/0'
     Then a notification email is received by 'user@localhost' with subject matching '^Job charmed-hpc-[\w-]{4}\.\d+: Ended$' and content matching 'Your job \d+ has ended on charmed-hpc-[\w-]{4}\.'
   - |-
     Notification email when a job fails
@@ -189,11 +185,11 @@ scenarios:
   - |-
     Notification email with custom signature when a job begins
     Given I set 'email-from-name' for app 'controller' to 'Integration Test Suite'
-    When I run a slurm srun job on unit 'login/0' with mail user 'furtheruser@localhost' and mail type 'BEGIN'
+    When I execute 'srun --time=1 --partition compute --mail-user=furtheruser@localhost --mail-type=BEGIN sleep 1' on unit 'login/0'
     Then a notification email is received by 'furtheruser@localhost' with subject matching '^Job charmed-hpc-[\w-]{4}\.\d+: Began$' and content matching 'Your job \d+ has started on charmed-hpc-[\w-]{4}\..*?Regards,.*?Integration Test Suite'
   - |-
     Remove SMTP integrator
-    When I remove application 'smtp-integrator'
+    When I remove app 'smtp-integrator'
     Then the workload status for app 'controller' is 'active'
 
 ---
@@ -243,7 +239,7 @@ background: |-
 scenarios:
   - |-
     Deploy shared storage for high availability
-    Given I deploy 'microceph' with constraints 'mem=4G,root-disk=20G,virt-type=virtual-machine' and storage 'osd-standalone=loop,2G,3'
+    Given I deploy 'microceph' with constraints 'mem=4G root-disk=20G virt-type=virtual-machine' with storage 'osd-standalone=loop,2G,3'
     And I deploy 'filesystem-client' from channel 'latest/edge'
     Then the workload status for app 'microceph' is 'active'
     Given I set up the cephfs pools and client on unit 'microceph/0'

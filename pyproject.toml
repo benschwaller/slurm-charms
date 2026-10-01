@@ -23,11 +23,7 @@ dev = [
     "rtoml ~= 0.13",
 
     # Development
-<<<<<<< HEAD
     "charmed-hpc-libs[all] ~= 0.7.1",
-=======
-    "charmed-hpc-libs[all] >= 0.7.1",
->>>>>>> 7e571d6 (chore(deps): bump `charmed-hpc-libs` to 0.7.1)
     "slurm-ops",
     "charmed-slurm-slurmctld-interface",
     "charmed-slurm-oci-runtime-interface",
@@ -56,11 +52,18 @@ dev = [
 
     # Integration
     "aiosmtpd == 1.4.6",
+<<<<<<< HEAD
     "jubilant ~= 1.12",
     "pytest ~= 9.1",
     "pytest-order ~= 1.5",
     "pytest-mock ~= 3.15",
     "tenacity ~= 9.1",
+=======
+    "jubilant ~= 1.0",
+    "pytest ~= 9.0",
+    "pytest-jubilant-bdd",
+    "pytest-order ~= 1.4",
+>>>>>>> f7a3bda (feat: bdd migration (minus HA and influx) done and repo moved over to only using those tests)
 
     # Linting
     "ruff",

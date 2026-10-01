@@ -40,18 +40,22 @@ scenarios("features/slurm_key_rotation.feature")
 
 
 @given(parsers.parse("I capture the slurm auth JWKS key from unit '{unit}'"))
-def capture_auth_key(context: Context, scenario_state: dict, unit: str) -> None:
+def capture_auth_key(context: Context, unit: str) -> None:
     """Read ``/etc/slurm/slurm.jwks`` and store it in scenario state."""
     juju = context.get_juju()
     result = juju.exec("sudo cat /etc/slurm/slurm.jwks", unit=unit)
-    scenario_state["initial_auth_key"] = json.loads(result.stdout)
+    context.scenario_state["initial_auth_key"] = json.loads(result.stdout)
 
 
-@then(parsers.parse("the slurm auth JWKS key on unit '{unit}' is rotated and propagated to all units"))
-def auth_key_rotated(context: Context, scenario_state: dict, unit: str) -> None:
+@then(
+    parsers.parse(
+        "the slurm auth JWKS key on unit '{unit}' is rotated and propagated to all units"
+    )
+)
+def auth_key_rotated(context: Context, unit: str) -> None:
     """Verify the auth key was rotated on the controller and propagated."""
     juju = context.get_juju()
-    initial_key = scenario_state["initial_auth_key"]
+    initial_key = context.scenario_state["initial_auth_key"]
     non_controller_units = [
         f"{SACKD_APP_NAME}/0",
         f"{SLURMD_APP_NAME}/0",
@@ -87,32 +91,35 @@ def auth_key_rotated(context: Context, scenario_state: dict, unit: str) -> None:
 
 
 @given(parsers.parse("I capture the slurm JWT signing key from unit '{unit}'"))
-def capture_jwt_key(context: Context, scenario_state: dict, unit: str) -> None:
+def capture_jwt_key(context: Context, unit: str) -> None:
     """Read ``/etc/slurm/jwt_hs256.key`` and store it in scenario state."""
     juju = context.get_juju()
     result = juju.exec("sudo cat /etc/slurm/jwt_hs256.key", unit=unit)
-    scenario_state.setdefault("jwt_keys", {})[unit] = result.stdout
+    context.scenario_state.setdefault("jwt_keys", {})[unit] = result.stdout
 
 
-@given(parsers.parse("the initial slurm JWT signing keys match between '{unit_one}' and '{unit_two}'"))
-def jwt_keys_match(scenario_state: dict, unit_one: str, unit_two: str) -> None:
+@given(
+    parsers.parse("the initial slurm JWT signing keys match between '{unit_one}' and '{unit_two}'")
+)
+def jwt_keys_match(context: Context, unit_one: str, unit_two: str) -> None:
     """Assert the initial JWT keys on two units are identical."""
-    keys = scenario_state["jwt_keys"]
+    keys = context.scenario_state["jwt_keys"]
     assert keys[unit_one] == keys[unit_two], f"initial JWT key on {unit_one} and {unit_two} differ"
 
 
 @given(parsers.parse("I capture an initial slurm JWT token from unit '{unit}'"))
-def capture_initial_token(context: Context, scenario_state: dict, unit: str) -> None:
+def capture_initial_token(context: Context, unit: str) -> None:
     """Generate a Slurm JWT token and store it in scenario state."""
     juju = context.get_juju()
     token = juju.exec("sudo scontrol token lifespan=infinite", unit=unit).stdout.strip()
-    scenario_state["initial_token"] = token
+    context.scenario_state["initial_token"] = token
 
 
 @given(parsers.parse("the slurmrestd diagnostic endpoints are reachable from '{unit}'"))
-def discover_diag_endpoints(context: Context, scenario_state: dict, unit: str) -> None:
+def discover_diag_endpoints(context: Context, unit: str) -> None:
     """Query the Slurm REST API openapi endpoint and find diagnostic paths."""
     juju = context.get_juju()
+    scenario_state = context.scenario_state
     slurmrestd_unit = f"{SLURMRESTD_APP_NAME}/0"
     address = juju.status().apps[SLURMRESTD_APP_NAME].units[slurmrestd_unit].public_address
     base_url = f"http://{address}:6820"
@@ -142,11 +149,15 @@ def discover_diag_endpoints(context: Context, scenario_state: dict, unit: str) -
         assert code == "200", f"initial JWT key not functional at {url}"
 
 
-@then(parsers.parse("the slurm JWT signing key on unit '{unit}' is rotated and matches unit '{unit_two}'"))
-def jwt_key_rotated(context: Context, scenario_state: dict, unit: str, unit_two: str) -> None:
+@then(
+    parsers.parse(
+        "the slurm JWT signing key on unit '{unit}' is rotated and matches unit '{unit_two}'"
+    )
+)
+def jwt_key_rotated(context: Context, unit: str, unit_two: str) -> None:
     """Poll until the JWT key is rotated and matches across units."""
     juju = context.get_juju()
-    initial_controller = scenario_state["jwt_keys"][unit]
+    initial_controller = context.scenario_state["jwt_keys"][unit]
     cat_cmd = "sudo cat /etc/slurm/jwt_hs256.key"
 
     def ready(_ctx: Context) -> bool:
@@ -154,9 +165,9 @@ def jwt_key_rotated(context: Context, scenario_state: dict, unit: str, unit_two:
             new_controller = juju.exec(cat_cmd, unit=unit).stdout
             new_database = juju.exec(cat_cmd, unit=unit_two).stdout
             assert new_controller != initial_controller, "JWT key not rotated on controller"
-            assert (
-                new_controller == new_database
-            ), "JWT key on controller and database differ after rotation"
+            assert new_controller == new_database, (
+                "JWT key on controller and database differ after rotation"
+            )
             return True
         except Exception:
             return False
@@ -165,21 +176,25 @@ def jwt_key_rotated(context: Context, scenario_state: dict, unit: str, unit_two:
 
 
 @then(parsers.parse("the initial slurm JWT token from unit '{unit}' is no longer valid"))
-def initial_token_invalid(context: Context, scenario_state: dict, unit: str) -> None:
+def initial_token_invalid(context: Context, unit: str) -> None:
     """Verify the old token is rejected after key rotation."""
     juju = context.get_juju()
-    token = scenario_state["initial_token"]
-    url = scenario_state["diag_urls"][0]
+    token = context.scenario_state["initial_token"]
+    url = context.scenario_state["diag_urls"][0]
     status_code, _ = _api_get(juju, unit, token, url)
     assert status_code != "200", f"old token still valid after rotation (HTTP {status_code})"
 
 
-@then(parsers.parse("a new slurm JWT token from unit '{unit}' is valid for all slurmrestd diagnostic endpoints"))
-def new_token_valid(context: Context, scenario_state: dict, unit: str) -> None:
+@then(
+    parsers.parse(
+        "a new slurm JWT token from unit '{unit}' is valid for all slurmrestd diagnostic endpoints"
+    )
+)
+def new_token_valid(context: Context, unit: str) -> None:
     """Generate a new token and verify it works on all diagnostic endpoints."""
     juju = context.get_juju()
     new_token = juju.exec("sudo scontrol token lifespan=infinite", unit=unit).stdout.strip()
-    for url in scenario_state["diag_urls"]:
+    for url in context.scenario_state["diag_urls"]:
         code, body = _api_get(juju, unit, new_token, url)
         assert code == "200", f"new JWT key not functional at {url}, got body: {body}"
 
@@ -199,8 +214,8 @@ def _api_get(juju, unit: str, token: str, url: str) -> tuple[str, str]:
         f" --request GET '{url}'",
         unit=unit,
     )
-    assert (
-        "HTTP_RESPONSE_CODE:" in result.stdout
-    ), f"no status code in response, stdout: {result.stdout} stderr: {result.stderr}"
+    assert "HTTP_RESPONSE_CODE:" in result.stdout, (
+        f"no status code in response, stdout: {result.stdout} stderr: {result.stderr}"
+    )
     body, status_line = result.stdout.strip().rsplit("HTTP_RESPONSE_CODE:", 1)
     return status_line.strip(), body

@@ -17,7 +17,6 @@
 import logging
 
 import pytest
-from utils import local_charm_path
 from constants import (
     DEFAULT_SLURM_CHARM_CHANNEL,
     MYSQL_APP_NAME,
@@ -29,6 +28,7 @@ from constants import (
 )
 from pytest_bdd import given, scenarios
 from pytest_jubilant_bdd import Context
+from utils import local_charm_path
 
 logger = logging.getLogger(__name__)
 

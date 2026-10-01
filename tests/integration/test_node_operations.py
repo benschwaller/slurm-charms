@@ -12,17 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""BDD step definitions for Slurm node operations.
-
-Covers compute node state inspection, ``set-node-config``, and
-``set-node-state`` action verification. Replaces the ``tenacity.Retrying``
-loops from the legacy tests with ``context.wait()``.
-"""
+"""BDD step definitions for Slurm node operations."""
 
 import logging
 
 import pytest
-from bdd_utils import node_name, scontrol_show_node
+from utils import node_name, scontrol_show_node
 from pytest_bdd import parsers, scenarios, then
 from pytest_jubilant_bdd import Context
 

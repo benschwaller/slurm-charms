@@ -12,18 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""BDD step definitions for Slurm mail notifications.
-
-Covers SMTP integrator deployment with host/port config, job notification
-emails (end, fail, begin with custom signature), and SMTP integrator
-removal. Uses a module-scoped local SMTP server to capture emails.
-"""
+"""BDD step definitions for Slurm mail notifications."""
 
 import logging
 
 import jubilant
 import pytest
-from bdd_utils import MailHandler, interface_ipv4
+from utils import MailHandler, interface_ipv4
 from constants import SLURMD_APP_NAME, SMTP_INTEGRATOR_APP_NAME
 from pytest_bdd import given, parsers, scenarios, then, when
 from pytest_jubilant_bdd import Context

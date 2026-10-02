@@ -102,6 +102,27 @@ def _controllers(context: Context) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Juju machine status helpers
+# ---------------------------------------------------------------------------
+
+
+def _down_controller_machines(context: Context) -> dict[str, str]:
+    """Return a mapping of slurmctld units to machine ids whose juju machine is down."""
+    juju = context.get_juju()
+    status = juju.status()
+    return {
+        unit: unit_status.machine
+        for unit, unit_status in status.apps[SLURMCTLD_APP_NAME].units.items()
+        if status.machines[unit_status.machine].juju_status.current == "down"
+    }
+
+
+def _machine_is_down(status: jubilant.Status, machine_id: str) -> bool:
+    """Return ``True`` if the juju machine's agent status is ``down``."""
+    return status.machines[machine_id].juju_status.current == "down"
+
+
+# ---------------------------------------------------------------------------
 # Deploy steps with constraints / storage / config
 # ---------------------------------------------------------------------------
 
@@ -179,14 +200,8 @@ def record_controllers(context: Context) -> None:
 def controller_unit_count(context: Context, down: str, up: str) -> None:
     """Assert the number of down and up slurmctld units by machine status."""
     juju = context.get_juju()
-    status = juju.status()
-    down_count = 0
-    up_count = 0
-    for unit_status in status.apps[SLURMCTLD_APP_NAME].units.values():
-        if status.machines[unit_status.machine].juju_status.current == "down":
-            down_count += 1
-        else:
-            up_count += 1
+    down_count = len(_down_controller_machines(context))
+    up_count = len(juju.status().apps[SLURMCTLD_APP_NAME].units) - down_count
     assert down_count == int(down), f"expected {down} down units, got {down_count}"
     assert up_count == int(up), f"expected {up} up units, got {up_count}"
 
@@ -261,13 +276,9 @@ def remove_controller_unit(context: Context, mode: str) -> None:
     """
     juju = context.get_juju()
     if mode == "down":
-        status = juju.status()
-        down_unit = None
-        for unit, unit_status in status.apps[SLURMCTLD_APP_NAME].units.items():
-            if status.machines[unit_status.machine].juju_status.current == "down":
-                down_unit = unit
-                break
-        assert down_unit is not None, "no down controller unit found"
+        down_units = _down_controller_machines(context)
+        assert down_units, "no down controller unit found"
+        down_unit = next(iter(down_units))
         juju.remove_unit(down_unit, force=True)
         juju.wait(
             lambda status: jubilant.all_active(status, *SLURM_APPS),
@@ -296,27 +307,19 @@ def remove_controller_unit(context: Context, mode: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-@when("I stop the slurmctld service on the controller that is primary")
-def stop_primary_service(context: Context) -> None:
-    """Stop the slurmctld service on the primary controller unit."""
-    juju = context.get_juju()
-    controllers = _controllers(context)
-    slurmctld_service = SLURM_APPS[SLURMCTLD_APP_NAME]
-    juju.exec(
-        f"sudo systemctl stop {slurmctld_service}",
-        unit=controllers["primary"]["unit"],
+@when(
+    parsers.re(
+        r"I (?P<operation>stop|restart) the slurmctld service on the controller that is (?P<mode>\w+)"
     )
-
-
-@when("I restart the slurmctld service on the controller that is primary")
-def restart_primary_service(context: Context) -> None:
-    """Restart the slurmctld service on the primary controller unit."""
+)
+def control_slurmctld_service(context: Context, operation: str, mode: str) -> None:
+    """Stop or restart the slurmctld service on the given controller mode's unit."""
     juju = context.get_juju()
     controllers = _controllers(context)
     slurmctld_service = SLURM_APPS[SLURMCTLD_APP_NAME]
     juju.exec(
-        f"sudo systemctl restart {slurmctld_service}",
-        unit=controllers["primary"]["unit"],
+        f"sudo systemctl {operation} {slurmctld_service}",
+        unit=controllers[mode]["unit"],
     )
 
 
@@ -335,13 +338,30 @@ def sinfo_succeeds(context: Context, unit: str) -> None:
     context.wait(ready=ready)
 
 
-@then("the slurmctld service on the controller that is backup is running as primary")
-def backup_running_as_primary(context: Context) -> None:
-    """Assert the backup controller's service shows 'Running as primary controller'."""
+_SERVICE_STATES = {
+    "running as primary": "Running as primary controller",
+    "running in background mode": "slurmctld running in background mode",
+}
+
+
+@then(
+    parsers.re(
+        r"the slurmctld service on the controller that is (?P<mode>\w+) "
+        r"is (?P<state>running as primary|running in background mode)"
+    )
+)
+def controller_service_state(context: Context, mode: str, state: str) -> None:
+    """Assert the service on the given controller mode reports the given state.
+
+    Polls ``systemctl status`` until the expected state substring appears,
+    e.g. "Running as primary controller" after a failover, or "slurmctld
+    running in background mode" once a backup demotes itself.
+    """
     juju = context.get_juju()
     controllers = _controllers(context)
     slurmctld_service = SLURM_APPS[SLURMCTLD_APP_NAME]
-    unit = controllers["backup"]["unit"]
+    unit = controllers[mode]["unit"]
+    expected = _SERVICE_STATES[state]
 
     def ready(_ctx: Context) -> bool:
         try:
@@ -350,85 +370,15 @@ def backup_running_as_primary(context: Context) -> None:
                 unit=unit,
             )
             logger.debug(
-                "backup controller service status on '%s':\nreturn_code=%s\nstdout=%s\nstderr=%s",
+                "service status on '%s':\nreturn_code=%s\nstdout=%s\nstderr=%s",
                 unit,
                 result.return_code,
                 result.stdout,
                 result.stderr,
             )
-            return "Running as primary controller" in result.stdout
+            return expected in result.stdout
         except Exception as exc:
-            logger.debug(
-                "backup controller service status check on '%s' raised: %s",
-                unit,
-                exc,
-            )
-            return False
-
-    context.wait(ready=ready)
-
-
-@then("the slurmctld service on the controller that is primary is running as primary")
-def primary_running_as_primary(context: Context) -> None:
-    """Assert the primary controller's service shows 'Running as primary controller'."""
-    juju = context.get_juju()
-    controllers = _controllers(context)
-    slurmctld_service = SLURM_APPS[SLURMCTLD_APP_NAME]
-    unit = controllers["primary"]["unit"]
-
-    def ready(_ctx: Context) -> bool:
-        try:
-            result = juju.exec(
-                f"systemctl status {slurmctld_service}",
-                unit=unit,
-            )
-            logger.debug(
-                "primary controller service status on '%s':\nreturn_code=%s\nstdout=%s\nstderr=%s",
-                unit,
-                result.return_code,
-                result.stdout,
-                result.stderr,
-            )
-            return "Running as primary controller" in result.stdout
-        except Exception as exc:
-            logger.debug(
-                "primary controller service status check on '%s' raised: %s",
-                unit,
-                exc,
-            )
-            return False
-
-    context.wait(ready=ready)
-
-
-@then("the slurmctld service on the controller that is backup is running in background mode")
-def backup_running_in_background(context: Context) -> None:
-    """Assert the backup controller's service shows 'running in background mode'."""
-    juju = context.get_juju()
-    controllers = _controllers(context)
-    slurmctld_service = SLURM_APPS[SLURMCTLD_APP_NAME]
-    unit = controllers["backup"]["unit"]
-
-    def ready(_ctx: Context) -> bool:
-        try:
-            result = juju.exec(
-                f"systemctl status {slurmctld_service}",
-                unit=unit,
-            )
-            logger.debug(
-                "backup controller service status on '%s':\nreturn_code=%s\nstdout=%s\nstderr=%s",
-                unit,
-                result.return_code,
-                result.stdout,
-                result.stderr,
-            )
-            return "slurmctld running in background mode" in result.stdout
-        except Exception as exc:
-            logger.debug(
-                "backup controller service status check on '%s' raised: %s",
-                unit,
-                exc,
-            )
+            logger.debug("service status check on '%s' raised: %s", unit, exc)
             return False
 
     context.wait(ready=ready)
@@ -525,7 +475,7 @@ def power_off_primary(context: Context) -> None:
     juju.exec("sudo poweroff", unit=controllers["primary"]["unit"])
     machine_id = controllers["primary"]["machine"]
     juju.wait(
-        lambda status: status.machines[machine_id].juju_status.current == "down",
+        lambda status: _machine_is_down(status, machine_id),
         timeout=SLURM_WAIT_TIMEOUT,
     )
 
@@ -539,7 +489,7 @@ def primary_machine_off(context: Context) -> None:
     machine_id = controllers["primary"]["machine"]
 
     def ready(_ctx: Context) -> bool:
-        return juju.status().machines[machine_id].juju_status.current == "down"
+        return _machine_is_down(juju.status(), machine_id)
 
     context.wait(ready=ready)
 

@@ -49,17 +49,6 @@ def deploy_smtp_integrator(context: Context, port: str) -> None:
     )
 
 
-# Commented out pending the upstream registration of ``remove_app`` as a
-# ``when`` step (currently given-only in pytest-jubilant-bdd 0.17.0). Once
-# available, the plan's "When I remove app 'smtp-integrator'" binds to the
-# built-in step and this handler can be deleted.
-# @when(parsers.parse("I remove app '{app}'"))
-# def remove_application(context: Context, app: str) -> None:
-#     """Remove an application and wait for it to disappear from the model."""
-#     juju = context.get_juju()
-#     juju.remove_application(app)
-#     juju.wait(lambda status: app not in status.apps)
-
 
 # ---------------------------------------------------------------------------
 # Slurm job submission with mail notifications

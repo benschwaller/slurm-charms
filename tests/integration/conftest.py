@@ -130,6 +130,10 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "high_availability: marks tests for slurmctld high availability"
     )
+    if config.getoption("--keep-models"):
+        # pytest-jubilant-bdd owns model teardown and only honors its own
+        # `--juju-bdd-no-teardown` flag, so forward `--keep-models` to it.
+        config.option.juju_bdd_no_teardown = True
 
 
 def pytest_collection_modifyitems(config, items):

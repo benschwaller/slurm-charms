@@ -981,15 +981,15 @@ wheels = [
 
 [[package]]
 name = "pytest-jubilant-bdd"
-version = "0.17.0"
+version = "0.18.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jubilant" },
     { name = "pytest-bdd" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f6/e1/2705448c5f475ca0585c4681a104f5bb44c54d4faa67a46205ddcf2e688c/pytest_jubilant_bdd-0.17.0.tar.gz", hash = "sha256:db871a81a4904d5ea5ec0a08dd4084cc020a148eb0808f80ddf304b5da08af70", size = 79874, upload-time = "2026-10-01T18:40:19.845Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bf/4c/f688f5651aa089c9d66620bbbea57961e46b7c7b6cf47ad9dc55f4e1bc9a/pytest_jubilant_bdd-0.18.0.tar.gz", hash = "sha256:1fd13d943b3778c129e77ef548161abb48126f2d41c09df57f3eb61b9cdbd1b2", size = 80016, upload-time = "2026-10-07T19:12:40.195Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/14/60/b4fcdaaa57cd1f64a5b9e62fc5c73fa4a1a74bc09f0efa57f7a7484ca752/pytest_jubilant_bdd-0.17.0-py3-none-any.whl", hash = "sha256:dae2cd98fbd64034afd04d7d2a6907f87d3e56c13a57e3f7eaec43cf1dade11f", size = 28069, upload-time = "2026-10-01T18:40:18.804Z" },
+    { url = "https://files.pythonhosted.org/packages/c1/de/466962b4ab35be157dd3d2c051423e7478a716e63f8476f4467d220aee95/pytest_jubilant_bdd-0.18.0-py3-none-any.whl", hash = "sha256:89ed41f60cebb079153fe25d73e60f4ddfeaf86bee7f372386b7df0288e99750", size = 28221, upload-time = "2026-10-07T19:12:39.168Z" },
 ]
 
 [[package]]
@@ -1276,7 +1276,7 @@ requires-dist = [
     { name = "pyright", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = "~=9.1" },
-    { name = "pytest-jubilant-bdd", marker = "extra == 'dev'", specifier = "~=0.17" },
+    { name = "pytest-jubilant-bdd", marker = "extra == 'dev'", specifier = "~=0.18" },
     { name = "pytest-order", marker = "extra == 'dev'", specifier = "~=1.5" },
     { name = "python-dotenv", marker = "extra == 'dev'", specifier = "~=1.2" },
     { name = "pyyaml", marker = "extra == 'dev'" },

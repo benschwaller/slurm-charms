@@ -59,7 +59,7 @@ just repo unit # Run unit tests.
 
 We also have some integration tests in place, but be aware that it requires a fairly good amount
 of computer resources to run them. We usually test with at least 4 cores and 16 GB of RAM, but feel
-free to experiment!
+free to experiment! The juju-bdd-wait-timeout command is needed so sufficient time is availabe for deployment of the base slurm cluster. 
 
 ```shell
 just repo integration -- --juju-bdd-wait-timeout=900

@@ -62,7 +62,7 @@ of computer resources to run them. We usually test with at least 4 cores and 16 
 free to experiment!
 
 ```shell
-just repo integration --juju-bdd-wait-timeout=900
+just repo integration -- --juju-bdd-wait-timeout=900
 ```
 
 The integration tests for `slurmctld` high availability functionality require more time and computer

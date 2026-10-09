@@ -24,7 +24,8 @@ from constants import (
     SLURMDBD_APP_NAME,
     SLURMRESTD_APP_NAME,
 )
-from pytest_bdd import given, parsers, scenarios, then
+from jubilant import TaskError
+from pytest_bdd import given, parsers, scenarios, then, when
 from pytest_jubilant_bdd import Context
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,22 @@ logger = logging.getLogger(__name__)
 pytestmark = pytest.mark.order(10)
 
 scenarios("features/slurm_key_rotation.feature")
+
+
+@when(parsers.parse("I run action '{action}' on unit '{unit}' with an extended timeout"))
+def run_action_extended_timeout(context: Context, action: str, unit: str) -> None:
+    """Run an action, allowing extra time for the `slurmctld` restart it triggers."""
+    juju = context.get_juju()
+    # The rotate actions restart `slurmctld`, which can exceed the `juju run`
+    # CLI's 60-second default wait: the model runs update-status hooks every 10
+    # seconds, and actions are serialized behind them on the unit agent. The
+    # reusable action step does not expose jubilant's `wait` parameter.
+    try:
+        result = juju.run(unit, action, wait=300)
+    except TaskError as e:
+        result = e.task
+
+    context.action_results.push(result)
 
 
 # ---------------------------------------------------------------------------

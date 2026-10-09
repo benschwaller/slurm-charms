@@ -113,7 +113,7 @@ scenarios:
   - |-
     Rotate auth key across the cluster
     Given I capture the slurm auth JWKS key from unit 'controller/0'
-    When I run action 'rotate-auth-key' on unit 'controller/0'
+    When I run action 'rotate-auth-key' on unit 'controller/0' with an extended timeout
     Then the workload status for app 'login' is 'active'
     And the workload status for app 'controller' is 'active'
     And the workload status for app 'compute' is 'active'
@@ -127,7 +127,7 @@ scenarios:
     And the initial slurm JWT signing keys match between 'controller/0' and 'database/0'
     And I capture an initial slurm JWT token from unit 'controller/0'
     And the slurmrestd diagnostic endpoints are reachable from 'controller/0'
-    When I run action 'rotate-jwt-key' on unit 'controller/0'
+    When I run action 'rotate-jwt-key' on unit 'controller/0' with an extended timeout
     Then the workload status for app 'login' is 'active'
     And the workload status for app 'controller' is 'active'
     And the workload status for app 'compute' is 'active'
@@ -205,7 +205,7 @@ background: |-
 scenarios:
   - |-
     Apptainer OCI scheduling
-    Given I deploy 'apptainer' from channel 'latest/edge'
+    Given I deploy 'apptainer' from channel 'latest/edge' on base 'ubuntu@26.04'
     And I integrate 'apptainer' with 'controller'
     And I integrate 'apptainer' with 'compute'
     Then the workload status for app 'apptainer' is 'active'
@@ -240,7 +240,7 @@ scenarios:
   - |-
     Deploy shared storage for high availability
     Given I deploy 'microceph' with constraints 'mem=4G root-disk=20G virt-type=virtual-machine' with storage 'osd-standalone=loop,2G,3'
-    And I deploy 'filesystem-client' from channel 'latest/edge'
+    And I deploy 'filesystem-client' from channel 'latest/edge' on base 'ubuntu@26.04'
     Then the workload status for app 'microceph' is 'active'
     Given I set up the cephfs pools and client on unit 'microceph/0'
     And I deploy 'cephfs-server-proxy' from channel 'latest/edge' with cephfs config gathered from unit 'microceph/0'

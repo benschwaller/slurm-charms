@@ -37,17 +37,21 @@ scenarios("features/slurm_mail_notifications.feature")
 
 
 @given(parsers.parse("I deploy 'smtp-integrator' with auto-resolved local host and port '{port}'"))
-def deploy_smtp_integrator(context: Context, port: str) -> None:
+def deploy_smtp_integrator(context: Context, smtp_handler: MailHandler, port: str) -> None:
     """Deploy ``smtp-integrator`` with the local interface IP and given port."""
     juju = context.get_juju()
     from constants import NETWORK_INTERFACE
 
+    # `smtp_handler` is unused, but requesting it here forces the SMTP capture
+    # server to start before any mail-triggering job is submitted. pytest-bdd
+    # resolves step fixtures lazily at step execution time, so without this the
+    # server would only start when the Then step runs -- after the job has
+    # already ended and slurm-mail has attempted delivery.
     juju.deploy(
         "smtp-integrator",
         SMTP_INTEGRATOR_APP_NAME,
         config={"host": interface_ipv4(NETWORK_INTERFACE), "port": int(port)},
     )
-
 
 
 # ---------------------------------------------------------------------------

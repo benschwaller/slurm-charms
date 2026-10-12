@@ -20,11 +20,11 @@ from pathlib import Path
 
 import ops
 import pytest
+from charm import SlurmrestdCharm
 from charmed_hpc_libs.errors import SystemdError
 from charmed_hpc_libs.ops.machine.apt import AptOpsManager
 from charmed_hpc_libs.ops.machine.systemd import SystemctlServiceManager
 from charmed_slurm_slurmctld_interface import AUTH_KEY_LABEL
-from conftest import patch_slurmrestd_active
 from constants import SLURMRESTD_INTEGRATION_NAME, SLURMRESTD_PORT
 from ops import testing
 from pytest_mock import MockerFixture
@@ -91,6 +91,17 @@ def slurmctld_integration(
     )
 
 
+def patch_slurmrestd_active(
+    manager: testing.Manager[SlurmrestdCharm], mocker: MockerFixture
+) -> None:
+    """Patch the `slurmrestd` manager so the unit reports installed and active.
+
+    This is the state the charm must be in before `check_slurmrestd` reports `ActiveStatus`.
+    """
+    mocker.patch.object(manager.charm.slurmrestd, "is_installed", return_value=True)
+    mocker.patch.object(manager.charm.slurmrestd.service, "is_active", return_value=True)
+
+
 @pytest.mark.parametrize(
     "leader",
     (
@@ -101,64 +112,57 @@ def slurmctld_integration(
 class TestSlurmrestdCharm:
     """Unit tests for the `slurmrestd` charmed operator."""
 
-    @pytest.mark.parametrize(
-        "mock_install,install_success",
-        (
-            pytest.param(None, True, id="success"),
-            pytest.param(SlurmOpsError("install failed"), False, id="fail"),
-        ),
-    )
-    def test_on_install(
-        self,
-        mock_charm,
-        mocker: MockerFixture,
-        mock_install,
-        install_success,
-        leader,
-    ) -> None:
+    def test_on_install_success(self, mock_charm, mocker: MockerFixture, leader) -> None:
         """Test the `_on_install` event handler.
 
         Failure mode: `apt` enables `slurmrestd` on install. If the charm fails to
         stop and disable the service, it starts serving the REST API before any
-        configuration or auth key exists. If an install failure is not deferred, the
-        unit never retries once `apt` recovers.
+        configuration or auth key exists.
         """
         with mock_charm(mock_charm.on.install(), testing.State(leader=leader)) as manager:
             slurmrestd = manager.charm.slurmrestd
-            mocker.patch.object(slurmrestd, "install", side_effect=mock_install)
-            mocker.patch.object(slurmrestd, "is_installed", return_value=install_success)
+            mocker.patch.object(slurmrestd, "install")
+            mocker.patch.object(slurmrestd, "is_installed", return_value=True)
             mocker.patch.object(slurmrestd, "version", return_value="24.05.2-1")
             mock_stop = mocker.patch.object(slurmrestd.service, "stop")
             mock_disable = mocker.patch.object(slurmrestd.service, "disable")
 
             state = manager.run()
 
-        if install_success:
-            assert state.workload_version == "24.05.2-1"
-            assert state.opened_ports == frozenset(
-                {testing.TCPPort(port=SLURMRESTD_PORT, protocol="tcp")}
-            )
-            mock_stop.assert_called_once()
-            mock_disable.assert_called_once()
-            assert state.unit_status == ops.BlockedStatus(
-                "Waiting for integrations: [`slurmctld`]"
-            )
-        else:
-            assert len(state.deferred) > 0
-            assert state.opened_ports == frozenset()
-            assert state.unit_status == ops.BlockedStatus(
-                "Failed to install `slurmrestd`. See `juju debug-log` for details."
-            )
+        assert state.workload_version == "24.05.2-1"
+        assert state.opened_ports == frozenset(
+            {testing.TCPPort(port=SLURMRESTD_PORT, protocol="tcp")}
+        )
+        mock_stop.assert_called_once()
+        mock_disable.assert_called_once()
+        assert state.unit_status == ops.BlockedStatus("Waiting for integrations: [`slurmctld`]")
 
-    @pytest.mark.parametrize(
-        "ready",
-        (
-            pytest.param(True, id="ready"),
-            pytest.param(False, id="not ready"),
-        ),
-    )
+    def test_on_install_failure(self, mock_charm, mocker: MockerFixture, leader) -> None:
+        """Test the `_on_install` event handler when installing `slurmrestd` fails.
+
+        Failure mode: if an install failure is not deferred, the unit never retries
+        once `apt` recovers.
+        """
+        with mock_charm(mock_charm.on.install(), testing.State(leader=leader)) as manager:
+            slurmrestd = manager.charm.slurmrestd
+            mocker.patch.object(slurmrestd, "install", side_effect=SlurmOpsError("install failed"))
+            mocker.patch.object(slurmrestd, "is_installed", return_value=False)
+            mocker.patch.object(slurmrestd, "version", return_value="24.05.2-1")
+            mock_stop = mocker.patch.object(slurmrestd.service, "stop")
+            mock_disable = mocker.patch.object(slurmrestd.service, "disable")
+
+            state = manager.run()
+
+        assert len(state.deferred) == 1
+        assert state.opened_ports == frozenset()
+        mock_stop.assert_not_called()
+        mock_disable.assert_not_called()
+        assert state.unit_status == ops.BlockedStatus(
+            "Failed to install `slurmrestd`. See `juju debug-log` for details."
+        )
+
     def test_on_slurmctld_ready(
-        self, mock_charm, mocker: MockerFixture, leader, ready, auth_key_secret
+        self, mock_charm, mocker: MockerFixture, leader, auth_key_secret
     ) -> None:
         """Test the `_on_slurmctld_ready` event handler.
 
@@ -167,7 +171,7 @@ class TestSlurmrestdCharm:
         files are not written before the service is (re)started, the API rejects
         every request.
         """
-        integration = slurmctld_integration(auth_key_secret, ready=ready)
+        integration = slurmctld_integration(auth_key_secret)
 
         with mock_charm(
             mock_charm.on.relation_changed(integration),
@@ -180,27 +184,50 @@ class TestSlurmrestdCharm:
 
             state = manager.run()
 
-        if ready:
-            key_file_content = json.loads(Path("/etc/slurm/slurm.jwks").read_text())
-            assert key_file_content == EXAMPLE_KEY_FILE_CONTENT
+        key_file_content = json.loads(Path("/etc/slurm/slurm.jwks").read_text())
+        assert key_file_content == EXAMPLE_KEY_FILE_CONTENT
 
-            slurm_conf = Path("/etc/slurm/slurm.conf").read_text()
-            assert "clustername=charmed-hpc" in slurm_conf
-            assert "slurmctldhost=juju-988225-0:6817" in slurm_conf
-            assert "slurmctldhost=juju-988225-1:6817" in slurm_conf
+        slurm_conf = Path("/etc/slurm/slurm.conf").read_text()
+        assert "clustername=charmed-hpc" in slurm_conf
+        assert "slurmctldhost=juju-988225-0:6817" in slurm_conf
+        assert "slurmctldhost=juju-988225-1:6817" in slurm_conf
 
-            accounting_conf = Path("/etc/slurm/slurm.conf.accounting").read_text()
-            assert "accountingstoragetype=accounting_storage/slurmdbd" in accounting_conf
+        accounting_conf = Path("/etc/slurm/slurm.conf.accounting").read_text()
+        assert "accountingstoragetype=accounting_storage/slurmdbd" in accounting_conf
 
-            mock_enable.assert_called_once()
-            mock_restart.assert_called_once()
-            assert len(state.deferred) == 0
-            assert state.unit_status == ops.ActiveStatus()
-        else:
-            # The `@wait_unless(controller_ready)` guard defers until `slurmctld`
-            # publishes all required integration data.
-            assert len(state.deferred) == 1
-            assert state.unit_status == ops.WaitingStatus("Waiting for controller data")
+        mock_enable.assert_called_once()
+        mock_restart.assert_called_once()
+        assert len(state.deferred) == 0
+        assert state.unit_status == ops.ActiveStatus()
+
+    def test_on_slurmctld_ready_deferred(
+        self, mock_charm, mocker: MockerFixture, leader, auth_key_secret
+    ) -> None:
+        """Test `_on_slurmctld_ready` when `slurmctld` has not published all required data.
+
+        Failure mode: if the `@wait_unless(controller_ready)` guard did not defer,
+        the handler would write an incomplete key or config and start `slurmrestd`
+        with a broken setup.
+        """
+        integration = slurmctld_integration(auth_key_secret, ready=False)
+
+        with mock_charm(
+            mock_charm.on.relation_changed(integration),
+            testing.State(leader=leader, relations={integration}, secrets={auth_key_secret}),
+        ) as manager:
+            slurmrestd = manager.charm.slurmrestd
+            patch_slurmrestd_active(manager, mocker)
+            mock_enable = mocker.patch.object(slurmrestd.service, "enable")
+            mock_restart = mocker.patch.object(slurmrestd.service, "restart")
+
+            state = manager.run()
+
+        # The `@wait_unless(controller_ready)` guard defers until `slurmctld`
+        # publishes all required integration data.
+        assert len(state.deferred) == 1
+        mock_enable.assert_not_called()
+        mock_restart.assert_not_called()
+        assert state.unit_status == ops.WaitingStatus("Waiting for controller data")
 
     def test_on_slurmctld_ready_converges_repeated_events(
         self, mock_charm, mocker: MockerFixture, leader, auth_key_secret

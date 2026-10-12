@@ -21,17 +21,6 @@ from pyfakefs.fake_filesystem import FakeFilesystem
 from pytest_mock import MockerFixture
 
 
-def patch_slurmrestd_active(
-    manager: testing.Manager[SlurmrestdCharm], mocker: MockerFixture
-) -> None:
-    """Patch the `slurmrestd` manager so the unit reports installed and active.
-
-    This is the state the charm must be in before `check_slurmrestd` reports `ActiveStatus`.
-    """
-    mocker.patch.object(manager.charm.slurmrestd, "is_installed", return_value=True)
-    mocker.patch.object(manager.charm.slurmrestd.service, "is_active", return_value=True)
-
-
 @pytest.fixture(scope="function")
 def mock_ctx() -> testing.Context[SlurmrestdCharm]:
     """Mock `SlurmrestdCharm` context."""
@@ -55,9 +44,3 @@ def mock_charm(
     mocker.patch("subprocess.run")
 
     return mock_ctx
-
-
-@pytest.fixture(scope="function", params=(True, False), ids=("success", "failure"))
-def succeed(request: pytest.FixtureRequest) -> bool:
-    """Parameterize a test to succeed and fail."""
-    return request.param

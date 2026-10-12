@@ -147,7 +147,6 @@ class TestSlurmrestdCharm:
             slurmrestd = manager.charm.slurmrestd
             mocker.patch.object(slurmrestd, "install", side_effect=SlurmOpsError("install failed"))
             mocker.patch.object(slurmrestd, "is_installed", return_value=False)
-            mocker.patch.object(slurmrestd, "version", return_value="24.05.2-1")
             mock_stop = mocker.patch.object(slurmrestd.service, "stop")
             mock_disable = mocker.patch.object(slurmrestd.service, "disable")
 
@@ -291,6 +290,11 @@ class TestSlurmrestdCharm:
 
             state = manager.run()
 
+        # The key and config files are written before the service is restarted, so
+        # the data is in place when the deferred event is retried.
+        key_file_content = json.loads(Path("/etc/slurm/slurm.jwks").read_text())
+        assert key_file_content == EXAMPLE_KEY_FILE_CONTENT
+
         assert len(state.deferred) == 1
         assert state.unit_status == ops.BlockedStatus(
             "Failed to start `slurmrestd`. See `juju debug-log` for details"
@@ -418,6 +422,10 @@ class TestSlurmrestdCharm:
             mocker.patch.object(slurmrestd, "is_installed", return_value=True)
 
             state = manager.run()
+
+        # The malformed key was rejected before anything was written to disk.
+        key_file_path = Path("/etc/slurm/slurm.jwks")
+        assert key_file_path.read_text() == ""
 
         assert len(state.deferred) == 1
         assert state.unit_status == ops.BlockedStatus(

@@ -1,9 +1,11 @@
 Feature: Slurm InfluxDB accounting
-  InfluxDB task accounting. Currently skipped because the influxdb charm deployment is broken.
+  InfluxDB task accounting. Currently skipped because the influxdb charm
+deployment is broken.
 
   Background:
     Given 'controller' is deployed
     And 'login' is deployed
+    And 'compute' is deployed
 
   @functional @edge
   Scenario: Task accounting works

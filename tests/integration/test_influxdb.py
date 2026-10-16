@@ -26,7 +26,7 @@ from pytest_jubilant_bdd import Context
 logger = logging.getLogger(__name__)
 
 pytestmark = [
-    pytest.mark.order(12),
+    pytest.mark.order(15),
     pytest.mark.skip(reason="influxdb charm deployment is currently broken"),
 ]
 

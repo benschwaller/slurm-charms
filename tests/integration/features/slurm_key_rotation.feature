@@ -1,5 +1,13 @@
 Feature: Slurm key rotation
-  rotate-auth-key and rotate-jwt-key action verification, including cross-unit key propagation and REST API token invalidation.
+  rotate-auth-key and rotate-jwt-key action verification, including
+cross-unit key propagation and REST API token invalidation.
+
+  Background:
+    Given 'login' is deployed
+    And 'controller' is deployed
+    And 'compute' is deployed
+    And 'database' is deployed
+    And 'rest-api' is deployed
 
   @functional @edge
   Scenario: Rotate auth key across the cluster

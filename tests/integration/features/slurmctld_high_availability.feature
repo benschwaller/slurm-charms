@@ -1,8 +1,13 @@
 Feature: Slurmctld high availability
-  High availability for slurmctld: shared storage deploy, scale up/down, service and unit failover and recovery, degraded scale-up, and removal of a failed controller. Gated by the high_availability marker (--run-high-availability).
+  High availability for slurmctld: shared storage deploy, scale up/down,
+service and unit failover and recovery, degraded scale-up, and removal of
+a failed controller. Gated by the high_availability marker
+(--run-high-availability).
 
   Background:
-    Given 'controller' is deployed
+    Given 'login' is deployed
+    And 'controller' is deployed
+    And 'compute' is deployed
 
   @reliability @edge
   Scenario: Deploy shared storage for high availability
@@ -13,7 +18,9 @@ Feature: Slurmctld high availability
     And I deploy 'cephfs-server-proxy' from channel 'latest/edge' with cephfs config gathered from unit 'microceph/0'
     And I integrate 'filesystem-client' with 'cephfs-server-proxy'
     And I integrate 'filesystem-client:mount' with 'controller:mount'
-    Then the workload status for app 'controller' is 'active'
+    Then the workload status for app 'filesystem-client' is 'active'
+    And the workload status for app 'cephfs-server-proxy' is 'active'
+    And the workload status for app 'controller' is 'active'
     And the slurmctld controller that is primary reports ping status 'UP'
   Scenario: Scale up slurmctld by two units
     Given the slurmctld controller that is primary reports ping status 'UP'

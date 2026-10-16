@@ -42,11 +42,6 @@ pytestmark = [
 scenarios("features/slurmctld_high_availability.feature")
 
 
-# ---------------------------------------------------------------------------
-# Slurm controller discovery via ``scontrol ping``
-# ---------------------------------------------------------------------------
-
-
 def _get_slurm_controllers(context: Context, query_unit: str = f"{SACKD_APP_NAME}/0") -> dict:
     """Return a dict of Slurmctld controller statuses keyed by mode.
 
@@ -101,11 +96,6 @@ def _controllers(context: Context) -> dict:
     return _get_slurm_controllers(context)
 
 
-# ---------------------------------------------------------------------------
-# Juju machine status helpers
-# ---------------------------------------------------------------------------
-
-
 def _down_controller_machines(context: Context) -> dict[str, str]:
     """Return a mapping of slurmctld units to machine ids whose juju machine is down."""
     juju = context.get_juju()
@@ -120,11 +110,6 @@ def _down_controller_machines(context: Context) -> dict[str, str]:
 def _machine_is_down(status: jubilant.Status, machine_id: str) -> bool:
     """Return ``True`` if the juju machine's agent status is ``down``."""
     return status.machines[machine_id].juju_status.current == "down"
-
-
-# ---------------------------------------------------------------------------
-# Deploy steps with constraints / storage / config
-# ---------------------------------------------------------------------------
 
 
 @given(
@@ -161,11 +146,6 @@ def deploy_cephfs_proxy(context: Context, channel: str) -> None:
     )
 
 
-# ---------------------------------------------------------------------------
-# CephFS setup
-# ---------------------------------------------------------------------------
-
-
 @given(parsers.parse("I set up the cephfs pools and client on unit '{unit}'"))
 def setup_cephfs(context: Context, unit: str) -> None:
     """Create CephFS pools and authorise a client on microceph."""
@@ -178,11 +158,6 @@ def setup_cephfs(context: Context, unit: str) -> None:
         "microceph.ceph fs authorize cephfs client.fs-client / rw",
         unit=unit,
     )
-
-
-# ---------------------------------------------------------------------------
-# Controller snapshot and hostname continuity
-# ---------------------------------------------------------------------------
 
 
 @given("I record the current slurmctld controller mode assignments")
@@ -228,11 +203,6 @@ def controller_hostname_unchanged(context: Context, mode: str, recorded_mode: st
     _wait_for_controllers(context, check)
 
 
-# ---------------------------------------------------------------------------
-# Controller status assertions
-# ---------------------------------------------------------------------------
-
-
 @given(parsers.parse("the slurmctld controller that is {mode} reports ping status '{status}'"))
 @then(parsers.parse("the slurmctld controller that is {mode} reports ping status '{status}'"))
 def controller_status(context: Context, mode: str, status: str) -> None:
@@ -258,11 +228,6 @@ def controller_count(context: Context, count: str) -> None:
         )
 
     _wait_for_controllers(context, check)
-
-
-# ---------------------------------------------------------------------------
-# Scale up / down
-# ---------------------------------------------------------------------------
 
 
 @when(parsers.parse("I remove the slurmctld controller that is {mode}"))
@@ -300,11 +265,6 @@ def remove_controller_unit(context: Context, mode: str) -> None:
         error=lambda status: jubilant.any_error(status, SLURMCTLD_APP_NAME),
         timeout=SLURM_WAIT_TIMEOUT,
     )
-
-
-# ---------------------------------------------------------------------------
-# Service failover / recovery
-# ---------------------------------------------------------------------------
 
 
 @when(
@@ -384,11 +344,6 @@ def controller_service_state(context: Context, mode: str, state: str) -> None:
     context.wait(ready=ready)
 
 
-# ---------------------------------------------------------------------------
-# Compute node scheduling precondition
-# ---------------------------------------------------------------------------
-
-
 @given(
     parsers.parse(
         "the slurmd node for unit '{compute_unit}' is schedulable according to scontrol from unit '{login_unit}'"
@@ -460,11 +415,6 @@ def node_is_schedulable(context: Context, compute_unit: str, login_unit: str) ->
             return False
 
     context.wait(ready=ready)
-
-
-# ---------------------------------------------------------------------------
-# Machine power off / reboot
-# ---------------------------------------------------------------------------
 
 
 @when("I power off the primary slurmctld machine")

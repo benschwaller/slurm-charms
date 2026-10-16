@@ -15,7 +15,6 @@
 
 """Constants used within the Slurm charm integration tests."""
 
-DEFAULT_SLURM_CHARM_CHANNEL = "latest/edge"
 SACKD_APP_NAME = "login"
 SLURMCTLD_APP_NAME = "controller"
 SLURMD_APP_NAME = "compute"
@@ -29,15 +28,8 @@ SLURM_APPS = {
     SLURMRESTD_APP_NAME: "slurmrestd",
 }
 
-MYSQL_APP_NAME = "mysql"
-INFLUXDB_APP_NAME = "influxdb"
-APPTAINER_APP_NAME = "apptainer"
-
-DEFAULT_FILESYSTEM_CHARM_CHANNEL = "latest/edge"
-DEFAULT_APPTAINER_CHARM_CHANNEL = "latest/edge"
 MICROCEPH_APP_NAME = "microceph"
 CEPHFS_SERVER_PROXY_APP_NAME = "cephfs-server-proxy"
-FILESYSTEM_CLIENT_APP_NAME = "checkpoint"
 
 NETWORK_INTERFACE = "lxdbr0"
 SMTP_INTEGRATOR_APP_NAME = "smtp-integrator"

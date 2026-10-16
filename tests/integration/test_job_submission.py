@@ -32,11 +32,6 @@ pytestmark = pytest.mark.order(12)
 scenarios("features/slurm_job_submission.feature")
 
 
-# ---------------------------------------------------------------------------
-# GPU job submission with mock GPU
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture
 def mock_gpu_cleanup() -> Iterator[list[Callable[[], None]]]:
     """Registry of teardown callables run after the scenario, in reverse order.
@@ -134,8 +129,9 @@ def reregister_slurmd_node(context: Context, name: str, login_unit: str) -> None
     """Delete and restart the slurmd node so it re-registers with the cluster."""
     juju = context.get_juju()
     juju.exec(f"sudo scontrol delete nodename={name}", unit=login_unit)
-    slurmd_unit = f"{SLURMD_APP_NAME}/0"
-    juju.exec("sudo systemctl restart slurmd", unit=slurmd_unit)
+    # Node names are `<app>-<id>` (e.g. 'compute-0' -> unit 'compute/0').
+    app, unit_id = name.rsplit("-", maxsplit=1)
+    juju.exec("sudo systemctl restart slurmd", unit=f"{app}/{unit_id}")
 
 
 @then(

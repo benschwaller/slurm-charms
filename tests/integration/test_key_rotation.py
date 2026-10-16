@@ -51,11 +51,6 @@ def run_action_extended_timeout(context: Context, action: str, unit: str) -> Non
     context.action_results.push(result)
 
 
-# ---------------------------------------------------------------------------
-# Auth key rotation
-# ---------------------------------------------------------------------------
-
-
 @given(parsers.parse("I capture the slurm auth JWKS key from unit '{unit}'"))
 def capture_auth_key(context: Context, unit: str) -> None:
     """Read ``/etc/slurm/slurm.jwks`` and store it in scenario state."""
@@ -100,11 +95,6 @@ def auth_key_rotated(context: Context, unit: str) -> None:
             return False
 
     context.wait(ready=ready)
-
-
-# ---------------------------------------------------------------------------
-# JWT key rotation
-# ---------------------------------------------------------------------------
 
 
 @given(parsers.parse("I capture the slurm JWT signing key from unit '{unit}'"))
@@ -214,11 +204,6 @@ def new_token_valid(context: Context, unit: str) -> None:
     for url in context.scenario_state["diag_urls"]:
         code, body = _api_get(juju, unit, new_token, url)
         assert code == "200", f"new JWT key not functional at {url}, got body: {body}"
-
-
-# ---------------------------------------------------------------------------
-# Helper: authenticated GET against the Slurm REST API
-# ---------------------------------------------------------------------------
 
 
 def _api_get(juju, unit: str, token: str, url: str) -> tuple[str, str]:

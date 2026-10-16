@@ -14,37 +14,17 @@
 
 """Shared helpers for the Slurm BDD step definitions."""
 
-from __future__ import annotations
-
 import json
 import logging
-import os
 import re
 import socket
 from email import message_from_string, policy
 from email.message import EmailMessage
-from pathlib import Path
 from typing import Any
 
 from psutil import net_if_addrs
 
 logger = logging.getLogger(__name__)
-
-# Mirror the LOCAL_* environment variables used by the legacy conftest so the
-# BDD deploy step can pick up locally built charms without code duplication.
-LOCAL_CHARMS = {
-    "sackd": os.getenv("LOCAL_SACKD"),
-    "slurmctld": os.getenv("LOCAL_SLURMCTLD"),
-    "slurmd": os.getenv("LOCAL_SLURMD"),
-    "slurmdbd": os.getenv("LOCAL_SLURMDBD"),
-    "slurmrestd": os.getenv("LOCAL_SLURMRESTD"),
-}
-
-
-def local_charm_path(charm: str) -> Path | str:
-    """Return the local charm path for ``charm`` if set, else the charm name."""
-    value = LOCAL_CHARMS.get(charm)
-    return Path(value) if value else charm
 
 
 def scontrol_show_node(context, unit: str, name: str) -> dict[str, Any]:

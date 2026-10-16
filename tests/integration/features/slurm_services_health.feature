@@ -1,5 +1,7 @@
 Feature: Slurm services health
-  Verify Slurm services are active within units, the prometheus-slurm-exporter metrics endpoint is accessible, and slurmctld/slurmdbd are listening on their expected ports.
+  Verify Slurm services are active within units, the prometheus-slurm-exporter
+metrics endpoint is accessible, and slurmctld/slurmdbd are listening on
+their expected ports.
 
   Background:
     Given 'login' is deployed

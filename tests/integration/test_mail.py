@@ -31,11 +31,6 @@ pytestmark = pytest.mark.order(14)
 scenarios("features/slurm_mail_notifications.feature")
 
 
-# ---------------------------------------------------------------------------
-# SMTP integrator deploy / removal
-# ---------------------------------------------------------------------------
-
-
 @given(parsers.parse("I deploy 'smtp-integrator' with auto-resolved local host and port '{port}'"))
 def deploy_smtp_integrator(context: Context, smtp_handler: MailHandler, port: str) -> None:
     """Deploy ``smtp-integrator`` with the local interface IP and given port."""
@@ -54,9 +49,44 @@ def deploy_smtp_integrator(context: Context, smtp_handler: MailHandler, port: st
     )
 
 
-# ---------------------------------------------------------------------------
-# Slurm job submission with mail notifications
-# ---------------------------------------------------------------------------
+@when(
+    parsers.parse(
+        "I run a slurm srun job on unit '{unit}' with mail user '{to_address}' "
+        "and mail type '{mail_type}'"
+    )
+)
+def run_slurm_job_mail(context: Context, unit: str, to_address: str, mail_type: str) -> None:
+    """Run an srun job that triggers a Slurm mail notification.
+
+    Retries until the submission succeeds: the plugin's built-in ``I execute``
+    step swallows command failures, and ``srun`` can fail transiently while
+    ``slurmctld`` restarts after the SMTP integration rewrites ``slurm.conf``.
+    A swallowed failure means no job runs and no email is ever sent.
+    """
+    juju = context.get_juju()
+
+    def ready(_ctx: Context) -> bool:
+        try:
+            result = juju.exec(
+                f"srun --time=1 --partition {SLURMD_APP_NAME} "
+                f"--mail-user={to_address} --mail-type={mail_type} sleep 1",
+                unit=unit,
+                wait=120,
+            )
+            if not result.success:
+                logger.debug(
+                    "mail-triggering srun failed (return_code=%s): stdout='%s', stderr='%s'",
+                    result.return_code,
+                    result.stdout,
+                    result.stderr,
+                )
+                return False
+            return True
+        except Exception as exc:
+            logger.debug("mail-triggering srun raised: %s", exc)
+            return False
+
+    context.wait(ready=ready)
 
 
 @when(
@@ -82,11 +112,6 @@ def run_failing_slurm_job_mail(
         pass
 
 
-# ---------------------------------------------------------------------------
-# Email verification
-# ---------------------------------------------------------------------------
-
-
 @then(
     parsers.parse(
         "a notification email is received by '{to_address}' with subject matching '{subject_pattern}' "
@@ -106,7 +131,14 @@ def email_received(
         try:
             smtp_handler.assert_mail(to_address, subject_pattern, content_pattern)
             return True
-        except AssertionError:
+        except AssertionError as exc:
+            logger.debug(
+                "waiting for email to '%s' (%s); latest captured email: To='%s', Subject='%s'",
+                to_address,
+                exc,
+                smtp_handler.latest_email["To"],
+                smtp_handler.latest_email["Subject"],
+            )
             return False
 
     context.wait(ready=ready)

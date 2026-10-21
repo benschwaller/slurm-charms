@@ -253,15 +253,21 @@ class TestSlurmManager:
     def test_reconfigure_reset_failed_error(
         self, mock_manager, mock_run, mocker: MockerFixture, fs: FakeFilesystem
     ) -> None:
-        """Test that a `reset-failed` error is wrapped in `SlurmOpsError`."""
+        """Test that a `reset-failed` error is ignored during reconfigure."""
         manager, service = mock_manager
 
-        mock_run.side_effect = subprocess.CalledProcessError(
-            cmd=["systemctl", "reset-failed", service],
-            returncode=1,
-            output="",
-            stderr="reset-failed failed",
-        )
+        # `systemctl reset-failed` exits non-zero when the unit is not loaded
+        # (e.g. stopped during initial deploy). The reconfigure should proceed.
+        mock_run.side_effect = [
+            subprocess.CalledProcessError(
+                cmd=["systemctl", "reset-failed", service],
+                returncode=1,
+                output="",
+                stderr="reset-failed failed",
+            ),
+            subprocess.CompletedProcess(args=[], returncode=0),
+            subprocess.CompletedProcess(args=[], returncode=0),
+        ]
 
         kwargs = {"restart": True} if service == "slurmctld" else {}
         if service == "slurmdbd":
@@ -269,12 +275,16 @@ class TestSlurmManager:
             fs.create_file("/etc/slurm/slurmdbd.conf")
             mocker.patch("shutil.chown")
 
-        with pytest.raises(SlurmOpsError) as exec_info:
-            manager.reconfigure(**kwargs)
+        manager.reconfigure(**kwargs)
 
-        assert exec_info.value.message == (
-            f"failed to reconfigure Slurm service '{service}'"
-        )
+        systemctl_calls = [
+            call[0][0] for call in mock_run.call_args_list if call[0][0][:1] == ["systemctl"]
+        ]
+        assert systemctl_calls == [
+            ["systemctl", "reset-failed", service],
+            ["systemctl", "enable", service],
+            ["systemctl", "restart", service],
+        ]
 
     def test_reconfigure_restart_error(
         self, mock_manager, mock_run, mocker: MockerFixture, fs: FakeFilesystem
